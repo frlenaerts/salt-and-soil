@@ -65,18 +65,6 @@ Scheduling and automation may be added later.
 
 ---
 
-## Typical use case
-
-Example setup:
-Primary NAS (inland location)
-⇅
-Secondary NAS (coastal location)
-
-
-Salt & Soil keeps selected datasets synchronized while allowing both NAS systems to remain idle when not actively syncing.
-
----
-
 ## Name origin
 
 Salt & Soil refers to the two environments the tool was originally designed for:
