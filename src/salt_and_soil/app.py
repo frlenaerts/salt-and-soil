@@ -34,13 +34,19 @@ def build_fastapi_app(config_path: str | None = None):
         return create_app(cfg, runtime)
 
 
-def _setup_logging(cfg: Config):
+def _setup_logging(cfg: Config) -> None:
     level = getattr(logging, cfg.app.log_level.upper(), logging.INFO)
-    logging.basicConfig(
-        level   = level,
-        format  = "%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
-        datefmt = "%H:%M:%S",
-    )
+    # Configure our named logger directly so uvicorn's dictConfig doesn't reset it
+    logger = logging.getLogger("salt-and-soil")
+    logger.setLevel(level)
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter(
+            "%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
+            datefmt="%H:%M:%S",
+        ))
+        logger.addHandler(handler)
+    logger.propagate = False
 
 
 def _ensure_data_dirs(cfg: Config):

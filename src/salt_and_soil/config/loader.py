@@ -16,7 +16,7 @@ except ImportError:
         raise ImportError("Install 'tomli' voor Python < 3.11:  pip install tomli")
 
 from .models import (
-    AppConfig, ServerConfig, OrchestratorRefConfig,
+    AppConfig, ServerConfig,
     MountConfig, SyncConfig, StateConfig, AgentConfig, Config,
 )
 from ..shared.enums import NodeRole, CompareMode
@@ -33,8 +33,14 @@ def load(path: str | Path | None = None) -> Config:
         raw = tomllib.load(f)
 
     app_raw  = raw.get("app", {})
+    _role_raw = app_raw.get("role", "orchestrator")
+    try:
+        _role = NodeRole(_role_raw)
+    except ValueError:
+        valid = [r.value for r in NodeRole]
+        raise ValueError(f"Ongeldige app.role '{_role_raw}'. Geldige waarden: {valid}")
     app = AppConfig(
-        role       = NodeRole(app_raw.get("role", "orchestrator")),
+        role       = _role,
         node_name  = app_raw.get("node_name", "node-01"),
         data_dir   = app_raw.get("data_dir", "./data"),
         log_level  = app_raw.get("log_level", "INFO"),
@@ -44,13 +50,6 @@ def load(path: str | Path | None = None) -> Config:
     server = ServerConfig(
         host = srv_raw.get("host", "0.0.0.0"),
         port = int(srv_raw.get("port", 8080)),
-    )
-
-    orc_raw = raw.get("orchestrator", {})
-    orchestrator = OrchestratorRefConfig(
-        host    = orc_raw.get("host", "127.0.0.1"),
-        port    = int(orc_raw.get("port", 8080)),
-        api_key = orc_raw.get("api_key", ""),
     )
 
     mnt_raw = raw.get("mount", {})
@@ -65,12 +64,21 @@ def load(path: str | Path | None = None) -> Config:
     )
 
     sync_raw = raw.get("sync", {})
+    _mode_raw = sync_raw.get("compare_mode", "size_mtime")
+    try:
+        _mode = CompareMode(_mode_raw)
+    except ValueError:
+        valid = [m.value for m in CompareMode]
+        raise ValueError(f"Ongeldige sync.compare_mode '{_mode_raw}'. Geldige waarden: {valid}")
+    _sync_roots = sync_raw.get("sync_roots", ["videos"])
+    if not _sync_roots:
+        raise ValueError("sync.sync_roots mag niet leeg zijn")
     sync = SyncConfig(
         scan_on_startup  = sync_raw.get("scan_on_startup", False),
         auto_resume      = sync_raw.get("auto_resume", True),
-        compare_mode     = CompareMode(sync_raw.get("compare_mode", "size_mtime")),
+        compare_mode     = _mode,
         max_parallel_jobs= int(sync_raw.get("max_parallel_jobs", 2)),
-        sync_roots       = sync_raw.get("sync_roots", ["videos"]),
+        sync_roots       = _sync_roots,
     )
 
     state_raw = raw.get("state", {})
@@ -94,11 +102,10 @@ def load(path: str | Path | None = None) -> Config:
         ))
 
     return Config(
-        app          = app,
-        server       = server,
-        orchestrator = orchestrator,
-        mount        = mount,
-        sync         = sync,
-        state        = state,
-        agents       = agents,
+        app    = app,
+        server = server,
+        mount  = mount,
+        sync   = sync,
+        state  = state,
+        agents = agents,
     )

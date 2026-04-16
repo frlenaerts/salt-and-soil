@@ -17,14 +17,6 @@ class ServerConfig:
 
 
 @dataclass
-class OrchestratorRefConfig:
-    """How to reach the orchestrator (used by agent role)."""
-    host: str = "127.0.0.1"
-    port: int = 8080
-    api_key: str = ""
-
-
-@dataclass
 class MountConfig:
     enabled: bool = True
     type: str = "nfs"
@@ -71,5 +63,4 @@ class Config:
     mount: MountConfig
     sync: SyncConfig
     state: StateConfig
-    orchestrator: OrchestratorRefConfig = field(default_factory=OrchestratorRefConfig)
     agents: list[AgentConfig] = field(default_factory=list)

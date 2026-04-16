@@ -5,12 +5,15 @@ Geen DB, geen ORM. Transparant en debugbaar.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from dataclasses import asdict
 
 from .models import StateFile, SyncJob, FolderDiff
 from ..shared.enums import DiffStatus, SyncAction, JobStatus
 from ..shared.paths import ensure_dir
+
+log = logging.getLogger("salt-and-soil.json_store")
 
 
 class JSONStateStore:
@@ -31,28 +34,35 @@ class JSONStateStore:
                 last_sync_at = raw.get("last_sync_at", ""),
             )
             for j in raw.get("jobs", []):
-                sf.jobs.append(SyncJob(
-                    job_id    = j["job_id"],
-                    sync_root = j["sync_root"],
-                    folder    = j["folder"],
-                    action    = SyncAction(j["action"]),
-                    status    = JobStatus(j["status"]),
-                    started_at  = j.get("started_at", ""),
-                    finished_at = j.get("finished_at", ""),
-                    error       = j.get("error", ""),
-                    bytes_transferred = j.get("bytes_transferred", 0),
-                ))
+                try:
+                    sf.jobs.append(SyncJob(
+                        job_id    = j.get("job_id", ""),
+                        sync_root = j.get("sync_root", ""),
+                        folder    = j.get("folder", ""),
+                        action    = SyncAction(j.get("action", "skip")),
+                        status    = JobStatus(j.get("status", "pending")),
+                        started_at        = j.get("started_at", ""),
+                        finished_at       = j.get("finished_at", ""),
+                        error             = j.get("error", ""),
+                        bytes_transferred = j.get("bytes_transferred", 0),
+                    ))
+                except (KeyError, ValueError) as e:
+                    log.warning("Ongeldige job in state, overgeslagen: %s", e)
             for d in raw.get("diffs", []):
-                sf.diffs.append(FolderDiff(
-                    sync_root      = d["sync_root"],
-                    name           = d["name"],
-                    diff_status    = DiffStatus(d["diff_status"]),
-                    local_size     = d.get("local_size", 0),
-                    remote_size    = d.get("remote_size", 0),
-                    planned_action = SyncAction(d.get("planned_action", "skip")),
-                ))
+                try:
+                    sf.diffs.append(FolderDiff(
+                        sync_root      = d.get("sync_root", ""),
+                        name           = d.get("name", ""),
+                        diff_status    = DiffStatus(d.get("diff_status", "unknown")),
+                        local_size     = d.get("local_size", 0),
+                        remote_size    = d.get("remote_size", 0),
+                        planned_action = SyncAction(d.get("planned_action", "skip")),
+                    ))
+                except (KeyError, ValueError) as e:
+                    log.warning("Ongeldige diff in state, overgeslagen: %s", e)
             return sf
-        except Exception:
+        except Exception as e:
+            log.warning("State bestand onleesbaar (%s), begin opnieuw", e)
             return StateFile(node_name=node_name, role=role)
 
     def save(self, state: StateFile) -> None:

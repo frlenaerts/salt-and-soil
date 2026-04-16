@@ -1,6 +1,9 @@
 from __future__ import annotations
+import logging
 import httpx
 from .dtos import MountResponse, StatusResponse, ListDirsResponse
+
+log = logging.getLogger("salt-and-soil.api_client")
 
 
 class AgentAPIClient:
@@ -40,5 +43,6 @@ class AgentAPIClient:
             async with self._client(timeout=5) as c:
                 r = await c.get(f"{self.base_url}/health")
                 return r.status_code == 200
-        except Exception:
+        except Exception as e:
+            log.debug("Health check mislukt voor %s: %s", self.base_url, e)
             return False

@@ -181,7 +181,7 @@ class OrchestratorRuntime:
 
             # 6. State opslaan
             state = self.repo.load_state(self.cfg.app.node_name, self.cfg.app.role.value)
-            state.last_scan_id = local_snaps[self.cfg.sync.sync_roots[0]].snapshot_id
+            state.last_scan_id = next(iter(local_snaps.values())).snapshot_id if local_snaps else ""
             state.last_scan_at = utc_now_iso()
             state.diffs        = all_diffs
             self.repo.save_state(state)
@@ -189,7 +189,7 @@ class OrchestratorRuntime:
             self.status = AppStatus.READY
             self._info(f"✓ Scan klaar — {len(all_diffs)} mappen gevonden")
 
-        except (MountCheckError, RuntimeError, Exception) as e:
+        except Exception as e:
             self._error  = str(e)
             self._err(str(e))
             self.status = AppStatus.ERROR
@@ -207,10 +207,11 @@ class OrchestratorRuntime:
             to_do = [j for j in jobs if j.action != SyncAction.SKIP]
             self._info(f"Start sync — {len(to_do)} jobs...")
 
-            # Eén agent voor nu (uitbreidbaar)
             if not self.cfg.agents:
                 raise RuntimeError("Geen agents geconfigureerd")
             agent_cfg = self.cfg.agents[0]
+            if len(self.cfg.agents) > 1:
+                log.warning("Meerdere agents geconfigureerd maar sync gebruikt enkel '%s'", agent_cfg.name)
 
             executor = SyncExecutor(
                 local_mount  = self.cfg.mount.local_mount_path,

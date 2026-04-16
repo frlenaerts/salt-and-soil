@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shlex
 from typing import AsyncIterator
 
 from ..state.models import SyncJob
@@ -27,7 +28,7 @@ class SyncExecutor:
     @property
     def _ssh_opts(self) -> str:
         return (
-            f"ssh -i {self.ssh_key_file} "
+            f"ssh -i {shlex.quote(self.ssh_key_file)} "
             "-o StrictHostKeyChecking=no "
             "-o ConnectTimeout=10"
         )
@@ -82,7 +83,7 @@ class SyncExecutor:
             "-i", self.ssh_key_file,
             "-o", "StrictHostKeyChecking=no",
             f"{self.remote_user}@{self.remote_host}",
-            f"rm -rf '{path}'",
+            f"rm -rf {shlex.quote(path)}",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )

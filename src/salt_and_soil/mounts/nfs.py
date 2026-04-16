@@ -7,11 +7,12 @@ from ..shared.enums import MountStatus
 from ..shared.clock import utc_now
 
 
-async def _run(*cmd: str) -> tuple[int, str, str]:
+async def _run(*cmd: str, env: dict | None = None) -> tuple[int, str, str]:
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=env,
     )
     stdout, stderr = await proc.communicate()
     return proc.returncode, stdout.decode(), stderr.decode()
@@ -76,8 +77,9 @@ class NFSMount:
         except OSError:
             info.writable = False
 
-        # Disk usage
-        rc, out, _ = await _run("df", "-B1", self.mount_point)
+        # Disk usage — LANG=C ensures consistent numeric formatting across locales
+        lc_env = {**os.environ, "LANG": "C", "LC_ALL": "C"}
+        rc, out, _ = await _run("df", "-B1", self.mount_point, env=lc_env)
         if rc == 0:
             try:
                 parts = out.strip().splitlines()[-1].split()

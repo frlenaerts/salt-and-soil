@@ -54,18 +54,18 @@ class SnapshotManager:
                 except ValueError:
                     pass
             entries.append(ScanEntry(
-                relative_path     = e["relative_path"],
-                entry_type        = e["entry_type"],
+                relative_path     = e.get("relative_path", ""),
+                entry_type        = e.get("entry_type", "dir"),
                 size              = e.get("size", 0),
                 mtime_utc         = mtime,
                 fingerprint_mode  = e.get("fingerprint_mode", "none"),
                 fingerprint_value = e.get("fingerprint_value", ""),
             ))
         return ScanSnapshot(
-            snapshot_id = raw["snapshot_id"],
-            node_name   = raw["node_name"],
-            sync_root   = raw["sync_root"],
-            scanned_at  = raw["scanned_at"],
+            snapshot_id = raw.get("snapshot_id", ""),
+            node_name   = raw.get("node_name", ""),
+            sync_root   = raw.get("sync_root", ""),
+            scanned_at  = raw.get("scanned_at", ""),
             entry_count = raw.get("entry_count", 0),
             total_size  = raw.get("total_size", 0),
             error       = raw.get("error", ""),
