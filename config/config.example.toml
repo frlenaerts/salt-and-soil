@@ -1,0 +1,57 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  Salt & Soil — config.example.toml
+#  Kopieer dit naar config/config.toml en pas aan.
+# ─────────────────────────────────────────────────────────────────────────────
+
+[app]
+role      = "orchestrator"    # "orchestrator" of "agent"
+node_name = "orchestrator-01"
+data_dir  = "./data"
+log_level = "INFO"            # DEBUG | INFO | WARNING | ERROR
+
+# ── Web server ────────────────────────────────────────────────────────────────
+[server]
+host = "0.0.0.0"
+port = 8080
+
+# ── Lokale NAS mount (de NAS die op hetzelfde netwerk zit als deze node) ──────
+[mount]
+enabled          = true
+type             = "nfs"
+remote_host      = "192.168.1.100"        # IP van de NAS
+remote_share     = "/volume1"             # NFS export pad
+local_mount_path = "/mnt/salt-and-soil"   # Lokaal mount punt (in container of op NUC)
+nfs_version      = 3
+nfs_options      = "soft,timeo=30,retrans=3"
+
+# ── Wat er gesynchroniseerd wordt ─────────────────────────────────────────────
+[sync]
+scan_on_startup   = false
+auto_resume       = true
+compare_mode      = "size_mtime"  # "size_mtime" | "checksum"
+max_parallel_jobs = 2
+sync_roots        = ["videos"]    # lijst van submappen in de NFS share
+# sync_roots      = ["videos", "music", "fotos"]
+
+# ── Lokale state opslag ───────────────────────────────────────────────────────
+[state]
+backend      = "json"
+state_file   = "./data/state/state.json"
+snapshot_dir = "./data/state/snapshots"
+
+# ── Agent verbindingen (enkel nodig voor orchestrator) ────────────────────────
+[[agents]]
+name              = "agent-knokke"
+host              = "10.0.0.2"            # IP van de Agent NUC (voor API calls)
+port              = 8081
+api_key           = ""                    # optioneel
+ssh_host          = "10.0.0.2"            # IP voor rsync over SSH
+ssh_user          = "root"
+ssh_key_file      = "/root/.ssh/saltsoil_key"
+remote_mount_path = "/mnt/salt-and-soil"  # Mount pad op de Agent NUC
+
+# Meerdere agents mogelijk:
+# [[agents]]
+# name = "agent-twee"
+# host = "10.0.0.3"
+# ...
