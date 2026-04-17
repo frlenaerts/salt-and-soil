@@ -123,7 +123,7 @@ class OrchestratorRuntime:
 
             # 3. Scan local
             self.status = AppStatus.SCANNING
-            self._info(f"Lokaal scannen: {', '.join(self.cfg.sync.sync_roots)}...")
+            self._info(f"Scanning local: {', '.join(self.cfg.sync.sync_roots)}...")
             scanner = DirScanner(
                 mount_point = self.cfg.mount.local_mount_path,
                 sync_roots  = self.cfg.sync.sync_roots,
