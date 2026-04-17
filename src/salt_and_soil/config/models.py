@@ -54,6 +54,7 @@ class AgentConfig:
     ssh_user: str = "root"
     ssh_key_file: str = "/root/.ssh/saltsoil_key"
     remote_mount_path: str = "/mnt/salt-and-soil/source"
+    remote_share: str = ""
 
 
 @dataclass
