@@ -62,13 +62,18 @@ class OrchestratorRuntime:
 
     # ── Logging ───────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _ts() -> str:
+        from datetime import datetime
+        return datetime.now().strftime("%H:%M:%S")
+
     def _info(self, msg: str):
         log.info(msg)
-        self._log.append(msg)
+        self._log.append(f"{self._ts()}  {msg}")
 
     def _err(self, msg: str):
         log.error(msg)
-        self._log.append(f"⚠ {msg}")
+        self._log.append(f"{self._ts()}  ⚠ {msg}")
 
     # ── Reset ─────────────────────────────────────────────────────────────────
 
