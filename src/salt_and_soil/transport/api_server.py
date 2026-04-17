@@ -64,6 +64,11 @@ def create_app(cfg: Config, runtime) -> FastAPI:
             yield
         finally:
             _running = False
+            log.info("Shutdown: unmounting NAS...")
+            try:
+                await runtime.do_unmount()
+            except Exception as exc:
+                log.warning("Unmount on shutdown failed: %s", exc)
 
     app = FastAPI(title="Salt & Soil", lifespan=lifespan)
 
@@ -103,25 +108,30 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
         return rt.snapshot_for_ui()
 
     @app.get("/api/stream")
-    async def stream():
+    async def stream(request: Request):
         async def gen():
             sent_log    = 0
             sent_status = None
-            while _running:
-                snap = rt.snapshot_for_ui()
-                cur_len = len(snap["log"])
-                if snap["status"] != sent_status or cur_len != sent_log:
-                    payload = {
-                        "status":  snap["status"],
-                        "new_log": snap["log"][sent_log:],
-                        "diffs":   snap["diffs"] if snap["status"] in ("ready", "syncing", "done") else [],
-                        "mount":   snap.get("mount"),
-                        "error":   snap.get("error"),
-                    }
-                    yield f"data: {json.dumps(payload)}\n\n"
-                    sent_log    = cur_len
-                    sent_status = snap["status"]
-                await asyncio.sleep(0.4)
+            try:
+                while _running:
+                    if await request.is_disconnected():
+                        break
+                    snap = rt.snapshot_for_ui()
+                    cur_len = len(snap["log"])
+                    if snap["status"] != sent_status or cur_len != sent_log:
+                        payload = {
+                            "status":  snap["status"],
+                            "new_log": snap["log"][sent_log:],
+                            "diffs":   snap["diffs"] if snap["status"] in ("ready", "syncing", "done") else [],
+                            "mount":   snap.get("mount"),
+                            "error":   snap.get("error"),
+                        }
+                        yield f"data: {json.dumps(payload)}\n\n"
+                        sent_log    = cur_len
+                        sent_status = snap["status"]
+                    await asyncio.sleep(0.4)
+            except asyncio.CancelledError:
+                pass
         return StreamingResponse(gen(), media_type="text/event-stream")
 
     @app.post("/api/execute")
