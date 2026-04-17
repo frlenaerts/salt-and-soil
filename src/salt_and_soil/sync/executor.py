@@ -94,7 +94,7 @@ class SyncExecutor:
     @staticmethod
     def _format_progress(filename: str | None, line: str) -> str | None:
         m = re.search(
-            r"([\d,]+)\s+100%\s+([\d.]+\s*\S+/s).*xfr#(\d+).*to-chk=\d+/(\d+)",
+            r"([\d,]+)\s+100%\s+([\d.]+\s*\S+/s).*xfr#(\d+).*(?:to-chk|ir-chk)=\d+/(\d+)",
             line,
         )
         if not m:
