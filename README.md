@@ -111,6 +111,55 @@ No agent is required for this step. Use the "Unmount & Stop" button to cleanly s
 
 ---
 
+## Networking — Tailscale (no port forwarding required)
+
+Salt & Soil uses [Tailscale](https://tailscale.com) to create a secure private network between the orchestrator and agent containers. No router port forwarding is needed. Only devices logged in to your Tailscale account can reach each other.
+
+Tailscale uses WireGuard under the hood and attempts a direct peer-to-peer connection between the two locations — meaning rsync traffic travels directly between sites without passing through an external server.
+
+### Setup (once per container)
+
+**1. Create a free Tailscale account** at https://tailscale.com
+
+**2. On the Proxmox host**, add the TUN device to the container config before starting Tailscale. Replace `<ID>` with the container ID:
+
+```bash
+echo 'lxc.cgroup2.devices.allow = c 10:200 rwm
+lxc.mount.entry = /dev/net/tun dev/net/tun none bind,create=file' >> /etc/pve/lxc/<ID>.conf
+```
+
+This is required because LXC containers are sandboxed by default and cannot access the host's network devices. These two lines grant the container access to `/dev/net/tun`, which Tailscale (WireGuard) needs to create a virtual tunnel adapter. **This must be done on every Proxmox host — it is not included in container backups.**
+
+**3. Restart the container** after editing the config:
+
+```bash
+pct restart <ID>
+```
+
+**4. Inside the container**, install and activate Tailscale:
+
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh
+systemctl enable --now tailscaled
+tailscale up
+```
+
+Open the login URL shown in your browser, sign in with your Tailscale account. The container is now registered.
+
+**5. Note the Tailscale IP:**
+
+```bash
+tailscale ip
+```
+
+This `100.x.x.x` address is permanent for the lifetime of the device in your account.
+
+**6. Repeat steps 2–5 for the second container** (orchestrator or agent).
+
+Once both containers are registered, they can reach each other via their Tailscale IPs — use these in `config.toml` for the `[[agents]]` host and SSH config.
+
+---
+
 ## Name origin
 
 Salt & Soil refers to the two environments the tool was originally designed for:
