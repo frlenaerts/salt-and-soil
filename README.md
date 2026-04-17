@@ -98,7 +98,8 @@ Once the container is running and the config is in place:
 # 1. Bootstrap (installs system packages, creates venv, generates SSH key)
 bash scripts/bootstrap.sh --role orchestrator
 
-# 2. Edit config
+# 2. Copy and edit config
+cp config/config.example.toml config/config.toml
 nano config/config.toml
 
 # 3. Verify NFS mount + directory scan
