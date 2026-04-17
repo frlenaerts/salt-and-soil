@@ -1,7 +1,7 @@
 #!/bin/bash
 # ─────────────────────────────────────────────────────────────────────────────
-#  Installeert Salt & Soil als systemd service.
-#  Draai als root op de LXC container.
+#  Installs Salt & Soil as a systemd service.
+#  Run as root on the LXC container.
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -34,7 +34,7 @@ systemctl daemon-reload
 systemctl enable "$SERVICE"
 systemctl start  "$SERVICE"
 
-echo "✓ Systemd service '$SERVICE' geïnstalleerd en gestart"
+echo "✓ Systemd service '$SERVICE' installed and started"
 echo ""
 echo "  Status : systemctl status $SERVICE"
 echo "  Logs   : journalctl -fu $SERVICE"
