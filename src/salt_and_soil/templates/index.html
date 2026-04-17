@@ -425,6 +425,9 @@ function toggleRoot(root) {
   document.querySelectorAll(`[data-root="${root}"]`).forEach(tr => {
     tr.style.display = collapsed[root] ? 'none' : '';
   });
+  const anyOpen = Object.values(collapsed).some(v => !v);
+  const thead = document.getElementById('folder-thead');
+  if (thead) thead.style.display = anyOpen ? '' : 'none';
 }
 
 // ── Folder table ──────────────────────────────────────────────────────────────
@@ -439,7 +442,7 @@ function renderFolders() {
   let html = `
     <div class="card" style="margin-bottom:12px;overflow:hidden">
       <table class="folder-table">
-        <thead><tr>
+        <thead id="folder-thead" style="display:none"><tr>
           <th>Folder</th><th>Local</th><th>Remote</th><th>Status</th><th>Action</th>
         </tr></thead>
         <tbody id="diff-tbody"></tbody>
