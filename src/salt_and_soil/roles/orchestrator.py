@@ -259,6 +259,7 @@ class OrchestratorRuntime:
                 remote_user  = agent_cfg.ssh_user,
                 remote_mount = agent_cfg.remote_mount_path,
                 ssh_key_file = agent_cfg.ssh_key_file,
+                remote_name  = agent_cfg.name,
             )
 
             for job in to_do:

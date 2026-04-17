@@ -20,12 +20,14 @@ class SyncExecutor:
         remote_user:  str,
         remote_mount: str,
         ssh_key_file: str,
+        remote_name:  str = "",
     ):
         self.local_mount  = local_mount
         self.remote_host  = remote_host
         self.remote_user  = remote_user
         self.remote_mount = remote_mount
         self.ssh_key_file = ssh_key_file
+        self.remote_name  = remote_name
 
     @property
     def _ssh_opts(self) -> str:
@@ -106,7 +108,8 @@ class SyncExecutor:
 
     async def _delete_remote(self, job: SyncJob) -> AsyncIterator[str]:
         path = f"{self.remote_mount}/{job.sync_root}/{job.folder}"
-        yield f"Deleting on {self.remote_host}: {path}"
+        label = self.remote_name or self.remote_host
+        yield f"Deleting on {label}: {path}"
         proc = await asyncio.create_subprocess_exec(
             "ssh",
             "-i", self.ssh_key_file,
