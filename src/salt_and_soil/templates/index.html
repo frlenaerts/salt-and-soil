@@ -163,6 +163,7 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
 
 /* ── Table ── */
 .folder-table { width: 100%; border-collapse: collapse; }
+.folder-table.cols-hidden th:not(:first-child) { display: none; }
 .folder-table thead th {
   text-align: left; font-size: 11px; font-weight: 600;
   text-transform: uppercase; letter-spacing: .7px;
@@ -426,8 +427,8 @@ function toggleRoot(root) {
     tr.style.display = collapsed[root] ? 'none' : '';
   });
   const anyOpen = Object.values(collapsed).some(v => !v);
-  const thead = document.getElementById('folder-thead');
-  if (thead) thead.style.display = anyOpen ? '' : 'none';
+  const tbl = document.getElementById('folder-table');
+  if (tbl) tbl.classList.toggle('cols-hidden', !anyOpen);
 }
 
 // ── Folder table ──────────────────────────────────────────────────────────────
@@ -441,8 +442,8 @@ function renderFolders() {
 
   let html = `
     <div class="card" style="margin-bottom:12px;overflow:hidden">
-      <table class="folder-table">
-        <thead id="folder-thead" style="display:none"><tr>
+      <table class="folder-table cols-hidden" id="folder-table">
+        <thead><tr>
           <th>Folder</th><th>Local</th><th>Remote</th><th>Status</th><th>Action</th>
         </tr></thead>
         <tbody id="diff-tbody"></tbody>
