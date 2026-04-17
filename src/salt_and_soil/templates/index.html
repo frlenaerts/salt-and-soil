@@ -119,15 +119,14 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
 
 /* ── Progress bar ── */
 .progress-wrap {
-  height: 3px; background: var(--border); border-radius: 2px;
+  height: 5px; background: var(--border); border-radius: 3px;
   margin-bottom: 20px; overflow: hidden; display: none;
 }
 .progress-wrap.visible { display: block; }
 .progress-inner {
-  height: 100%; width: 35%; background: var(--teal); border-radius: 2px;
-  animation: prog 1.4s ease-in-out infinite;
+  height: 100%; width: 0%; background: var(--teal); border-radius: 3px;
+  transition: width 0.35s ease;
 }
-@keyframes prog { 0%{transform:translateX(-100%)} 100%{transform:translateX(380%)} }
 
 /* ── Mount info bar ── */
 .mount-bar {
@@ -357,9 +356,10 @@ function connectSSE() {
     const d = JSON.parse(ev.data);
     setStatus(d.status);
     appendLog(d.new_log || []);
-    if (d.diffs?.length)  { diffs = d.diffs; renderFolders(); }
-    if (d.mount)          renderMountBar(d.mount);
-    if (d.error)          showBanner('error', '⚠ ' + d.error);
+    if (d.diffs?.length)       { diffs = d.diffs; renderFolders(); }
+    if (d.mount)               renderMountBar(d.mount);
+    if (d.error)               showBanner('error', '⚠ ' + d.error);
+    if (d.progress !== undefined) setProgress(d.progress);
     if (d.status === 'done')  { onDone(); closeSse(); }
     if (d.status === 'error') { closeSse(); }
   };
@@ -376,7 +376,15 @@ function setStatus(s) {
   const busy = ['mounting','scanning','syncing'].includes(s);
   btn.disabled = busy;
   btn.innerHTML = busy ? '⏳ &nbsp;Busy…' : '▶ &nbsp;Start Scan';
-  document.getElementById('progress-wrap').classList.toggle('visible', ['mounting','scanning'].includes(s));
+  if (!['mounting','scanning'].includes(s)) setProgress(0);
+}
+
+function setProgress(pct) {
+  const wrap  = document.getElementById('progress-wrap');
+  const inner = document.getElementById('progress-inner');
+  const show  = pct > 0 && pct < 100;
+  wrap.classList.toggle('visible', show);
+  inner.style.width = Math.min(pct, 100) + '%';
 }
 
 // ── Log ───────────────────────────────────────────────────────────────────────

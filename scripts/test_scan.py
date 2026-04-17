@@ -48,12 +48,14 @@ log = logging.getLogger("saltsoil.test")
 # ── Global test state ──────────────────────────────────────────────────────────
 
 class TestState:
-    status: AppStatus = AppStatus.IDLE
-    _log:   list[str] = []
-    _diffs: list[dict] = []
-    _mount: dict | None = None
-    _error: str = ""
-    _server: uvicorn.Server | None = None
+    status:   AppStatus = AppStatus.IDLE
+    _log:     list[str] = []
+    _diffs:   list[dict] = []
+    _mount:   dict | None = None
+    _error:   str = ""
+    _server:  uvicorn.Server | None = None
+    _progress: float = 0.0
+    _running:  bool = True
 
     def info(self, msg: str):
         log.info(msg)
@@ -65,11 +67,12 @@ class TestState:
 
     def snapshot(self) -> dict:
         return {
-            "status": self.status.value,
-            "log":    list(self._log),
-            "diffs":  list(self._diffs),
-            "mount":  self._mount,
-            "error":  self._error,
+            "status":   self.status.value,
+            "log":      list(self._log),
+            "diffs":    list(self._diffs),
+            "mount":    self._mount,
+            "error":    self._error,
+            "progress": self._progress,
         }
 
 ts = TestState()
@@ -83,6 +86,7 @@ def create_test_app(cfg, nfs: NFSMount, repo: StateRepository) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app):
         yield
+        ts._running = False   # signals SSE generators to exit
         log.info("Shutdown: unmounting NFS...")
         try:
             await nfs.unmount()
@@ -116,13 +120,13 @@ def create_test_app(cfg, nfs: NFSMount, repo: StateRepository) -> FastAPI:
     @app.get("/api/stream")
     async def stream():
         async def gen():
-            sent = 0; prev_status = None
-            while True:
+            sent = 0; prev_status = None; prev_progress = -1.0
+            while ts._running:
                 snap = ts.snapshot()
                 cur  = len(snap["log"])
-                if snap["status"] != prev_status or cur != sent:
-                    yield f"data: {json.dumps({'status': snap['status'], 'new_log': snap['log'][sent:], 'diffs': snap['diffs'] if snap['status'] in ('ready','done') else [], 'mount': snap['mount'], 'error': snap['error']})}\n\n"
-                    sent = cur; prev_status = snap["status"]
+                if snap["status"] != prev_status or cur != sent or snap["progress"] != prev_progress:
+                    yield f"data: {json.dumps({'status': snap['status'], 'new_log': snap['log'][sent:], 'diffs': snap['diffs'] if snap['status'] in ('ready','done') else [], 'mount': snap['mount'], 'error': snap['error'], 'progress': snap['progress']})}\n\n"
+                    sent = cur; prev_status = snap["status"]; prev_progress = snap["progress"]
                 await asyncio.sleep(0.4)
         return StreamingResponse(gen(), media_type="text/event-stream")
 
@@ -183,14 +187,19 @@ async def _do_scan(cfg, nfs: NFSMount, repo: StateRepository):
 
         # 2. Scan
         ts.status = AppStatus.SCANNING
-        ts.info(f"Scannen: {', '.join(cfg.sync.sync_roots)}...")
+        ts._progress = 5.0
+        ts.info(f"Scanning: {', '.join(cfg.sync.sync_roots)}...")
         scanner = DirScanner(
             mount_point = cfg.mount.local_mount_path,
             sync_roots  = cfg.sync.sync_roots,
             node_name   = cfg.app.node_name,
         )
+
+        def on_progress(done: int, total: int):
+            ts._progress = 5.0 + (done / total) * 93.0
+
         diffs = []
-        for snap in await scanner.scan_all():
+        for snap in await scanner.scan_all(on_progress=on_progress):
             repo.save_snapshot(snap)
             ts.info(f"  /{snap.sync_root}: {snap.entry_count} folders found ({human_size(snap.total_size)})")
             for entry in snap.top_level_dirs():
@@ -205,9 +214,10 @@ async def _do_scan(cfg, nfs: NFSMount, repo: StateRepository):
                     "planned_action": "skip",
                 })
 
-        ts._diffs = diffs
-        ts.status = AppStatus.READY
-        ts.info(f"✓ Done — {len(diffs)} folders found. Click 'Unmount & Stop' when finished.")
+        ts._diffs    = diffs
+        ts._progress = 100.0
+        ts.status    = AppStatus.READY
+        ts.info(f"✓ Done — {len(diffs)} folders found.")
 
     except (MountCheckError, Exception) as e:
         ts._error = str(e)
