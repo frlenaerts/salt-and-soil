@@ -8,8 +8,7 @@ Starts a local Salt & Soil orchestrator in 'test mode':
   2. Mount the local NAS via NFS
   3. Scan all sync_roots
   4. Serve a read-only web UI at http://localhost:<port>
-     → shows all folders with sizes, diff status (local only, no agent)
-  5. "Unmount & Stop" button in the UI unmounts the NAS and stops the server
+     -> shows all folders with sizes, diff status (local only, no agent)
 
 Usage:
   python scripts/test_scan.py
@@ -22,16 +21,15 @@ import argparse
 import asyncio
 import json
 import logging
-import os
 import signal
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
-# Ensure the src/ directory is on the path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 from salt_and_soil.config import load as load_config
@@ -41,19 +39,19 @@ from salt_and_soil.scanner.scanner import DirScanner
 from salt_and_soil.state.repository import StateRepository
 from salt_and_soil.shared.enums import AppStatus
 from salt_and_soil.shared.paths import human_size, ensure_dir
-from salt_and_soil.shared.clock import utc_now_iso
 
 log = logging.getLogger("saltsoil.test")
+
 
 # ── Global test state ──────────────────────────────────────────────────────────
 
 class TestState:
-    status:   AppStatus = AppStatus.IDLE
-    _log:     list[str] = []
-    _diffs:   list[dict] = []
-    _mount:   dict | None = None
-    _error:   str = ""
-    _server:  uvicorn.Server | None = None
+    status:    AppStatus = AppStatus.IDLE
+    _log:      list[str] = []
+    _diffs:    list[dict] = []
+    _mount:    dict | None = None
+    _error:    str = ""
+    _server:   uvicorn.Server | None = None
     _progress: float = 0.0
     _running:  bool = True
 
@@ -65,6 +63,14 @@ class TestState:
         log.error(msg)
         self._log.append(f"⚠ {msg}")
 
+    def reset(self):
+        self._log      = []
+        self._diffs    = []
+        self._mount    = None
+        self._error    = ""
+        self._progress = 0.0
+        self.status    = AppStatus.IDLE
+
     def snapshot(self) -> dict:
         return {
             "status":   self.status.value,
@@ -75,18 +81,26 @@ class TestState:
             "progress": self._progress,
         }
 
+
 ts = TestState()
+
+
+# ── Shutdown helper ────────────────────────────────────────────────────────────
+
+def _trigger_shutdown():
+    """Called from signal handler or API — closes SSE streams, then stops server."""
+    ts._running = False
+    if ts._server:
+        ts._server.should_exit = True
 
 
 # ── FastAPI test app ───────────────────────────────────────────────────────────
 
 def create_test_app(cfg, nfs: NFSMount, repo: StateRepository) -> FastAPI:
-    from contextlib import asynccontextmanager
 
     @asynccontextmanager
     async def lifespan(app):
         yield
-        ts._running = False   # signals SSE generators to exit
         log.info("Shutdown: unmounting NFS...")
         try:
             await nfs.unmount()
@@ -96,7 +110,6 @@ def create_test_app(cfg, nfs: NFSMount, repo: StateRepository) -> FastAPI:
 
     app = FastAPI(title="Salt & Soil — Test Scan", lifespan=lifespan)
 
-    # Load the shared template
     tmpl_path = Path(__file__).parent.parent / "src/salt_and_soil/templates/index.html"
     tmpl_html = tmpl_path.read_text() if tmpl_path.exists() else "<h1>Template not found</h1>"
 
@@ -106,10 +119,9 @@ def create_test_app(cfg, nfs: NFSMount, repo: StateRepository) -> FastAPI:
 
     @app.post("/api/start")
     async def start():
-        """In test mode: restart the scan."""
         if ts.status in (AppStatus.MOUNTING, AppStatus.SCANNING):
             return {"error": "Busy"}
-        ts._log = []; ts._diffs = []; ts._error = ""; ts._mount = None
+        ts.reset()
         asyncio.create_task(_do_scan(cfg, nfs, repo))
         return {"ok": True}
 
@@ -124,33 +136,48 @@ def create_test_app(cfg, nfs: NFSMount, repo: StateRepository) -> FastAPI:
             while ts._running:
                 snap = ts.snapshot()
                 cur  = len(snap["log"])
-                if snap["status"] != prev_status or cur != sent or snap["progress"] != prev_progress:
-                    yield f"data: {json.dumps({'status': snap['status'], 'new_log': snap['log'][sent:], 'diffs': snap['diffs'] if snap['status'] in ('ready','done') else [], 'mount': snap['mount'], 'error': snap['error'], 'progress': snap['progress']})}\n\n"
+                changed = (
+                    snap["status"]   != prev_status   or
+                    cur              != sent           or
+                    snap["progress"] != prev_progress
+                )
+                if changed:
+                    payload = {
+                        "status":   snap["status"],
+                        "new_log":  snap["log"][sent:],
+                        "diffs":    snap["diffs"] if snap["status"] in ("ready", "done") else [],
+                        "mount":    snap["mount"],
+                        "error":    snap["error"],
+                        "progress": snap["progress"],
+                    }
+                    yield f"data: {json.dumps(payload)}\n\n"
                     sent = cur; prev_status = snap["status"]; prev_progress = snap["progress"]
                 await asyncio.sleep(0.4)
         return StreamingResponse(gen(), media_type="text/event-stream")
 
     @app.post("/api/reset")
-    async def reset():
-        """Restart: unmount + reset state."""
-        await nfs.unmount()
-        ts.status = AppStatus.IDLE
-        ts._log   = []; ts._diffs = []; ts._mount = None; ts._error = ""
+    async def api_reset():
+        try:
+            await nfs.unmount()
+        except Exception:
+            pass
+        ts.reset()
         return {"ok": True}
 
     @app.post("/api/stop")
     async def stop():
-        """Unmount and stop the server."""
         ts.info("Unmounting...")
-        await nfs.unmount()
-        ts.info("Server stopping in 1 second.")
-        asyncio.create_task(_delayed_stop())
+        try:
+            await nfs.unmount()
+        except Exception:
+            pass
+        ts.info("Stopping server...")
+        _trigger_shutdown()
         return {"ok": True}
 
-    # Disable sync execute in test mode (no agent)
     @app.post("/api/execute")
     async def execute_disabled():
-        return {"error": "Sync not available in test mode (no agent configured)"}
+        return {"error": "Sync not available in test mode — no agent configured"}
 
     @app.get("/api/snapshots")
     async def snapshots():
@@ -159,16 +186,12 @@ def create_test_app(cfg, nfs: NFSMount, repo: StateRepository) -> FastAPI:
     return app
 
 
-async def _delayed_stop():
-    await asyncio.sleep(1.2)
-    if ts._server:
-        ts._server.should_exit = True
-
+# ── Scan logic ────────────────────────────────────────────────────────────────
 
 async def _do_scan(cfg, nfs: NFSMount, repo: StateRepository):
-    ts.status = AppStatus.MOUNTING
+    ts.status    = AppStatus.MOUNTING
+    ts._progress = 0.0
     try:
-        # 1. Mount
         ts.info(f"Mounting NAS: {nfs.host}:{nfs.share} → {nfs.mount_point}")
         info = await nfs.mount()
         ts._mount = {
@@ -185,28 +208,27 @@ async def _do_scan(cfg, nfs: NFSMount, repo: StateRepository):
         if is_path_empty(cfg.mount.local_mount_path):
             raise MountCheckError("Mount path is empty — NFS share not reachable?")
 
-        # 2. Scan
-        ts.status = AppStatus.SCANNING
+        ts.status    = AppStatus.SCANNING
         ts._progress = 5.0
-        ts.info(f"Scanning: {', '.join(cfg.sync.sync_roots)}...")
+        roots  = cfg.sync.sync_roots
+        n      = len(roots)
         scanner = DirScanner(
             mount_point = cfg.mount.local_mount_path,
-            sync_roots  = cfg.sync.sync_roots,
+            sync_roots  = roots,
             node_name   = cfg.app.node_name,
         )
-
-        def on_progress(done: int, total: int):
-            ts._progress = 5.0 + (done / total) * 93.0
+        ts.info(f"Scanning: {', '.join(roots)}...")
 
         diffs = []
-        for snap in await scanner.scan_all(on_progress=on_progress):
+        for i, snap in enumerate(await scanner.scan_all()):
             repo.save_snapshot(snap)
-            ts.info(f"  /{snap.sync_root}: {snap.entry_count} folders found ({human_size(snap.total_size)})")
+            ts._progress = 5.0 + ((i + 1) / n) * 93.0
+            ts.info(f"  /{snap.sync_root}: {snap.entry_count} folders ({human_size(snap.total_size)})")
             for entry in snap.top_level_dirs():
                 diffs.append({
                     "sync_root":      snap.sync_root,
                     "name":           entry.relative_path,
-                    "diff_status":    "local_only",   # geen agent in test modus
+                    "diff_status":    "local_only",
                     "local_size":     entry.size,
                     "remote_size":    0,
                     "local_size_hr":  entry.size_hr(),
@@ -219,10 +241,11 @@ async def _do_scan(cfg, nfs: NFSMount, repo: StateRepository):
         ts.status    = AppStatus.READY
         ts.info(f"✓ Done — {len(diffs)} folders found.")
 
-    except (MountCheckError, Exception) as e:
+    except Exception as e:
         ts._error = str(e)
         ts.err(str(e))
-        ts.status = AppStatus.ERROR
+        ts.status    = AppStatus.ERROR
+        ts._progress = 0.0
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -234,12 +257,9 @@ async def run_test(config_path: str | None = None, port: int | None = None):
         datefmt="%H:%M:%S",
     )
 
-    cfg = load_config(config_path)
-
-    # Override port if provided
+    cfg         = load_config(config_path)
     listen_port = port or cfg.server.port
 
-    # Ensure data directories exist
     ensure_dir(cfg.app.data_dir + "/state/snapshots")
     ensure_dir(cfg.app.data_dir + "/cache")
     ensure_dir(cfg.app.data_dir + "/logs")
@@ -258,22 +278,25 @@ async def run_test(config_path: str | None = None, port: int | None = None):
 
     fastapi_app = create_test_app(cfg, nfs, repo)
 
-    # Auto-start scan on startup
-    log.info(f"Salt & Soil test-scan start op http://localhost:{listen_port}")
-    log.info(f"Config: {cfg.app.node_name} ({cfg.app.role.value})")
-    log.info(f"NAS: {cfg.mount.remote_host}:{cfg.mount.remote_share} → {cfg.mount.local_mount_path}")
-
     uvi_cfg = uvicorn.Config(
         fastapi_app,
         host                     = "0.0.0.0",
         port                     = listen_port,
         log_level                = "warning",
-        timeout_graceful_shutdown = 3,  # force-close SSE connections on Ctrl+C
+        timeout_graceful_shutdown = 2,
     )
-    server = uvicorn.Server(uvi_cfg)
+    server     = uvicorn.Server(uvi_cfg)
     ts._server = server
 
-    # Start scan na korte delay zodat de server tijd heeft op te starten
+    # Install signal handlers BEFORE server.serve() so Ctrl+C closes SSE streams
+    # immediately instead of waiting for uvicorn's graceful shutdown timeout.
+    def _on_signal(sig, frame):
+        ts._running = False
+        server.should_exit = True
+
+    signal.signal(signal.SIGINT,  _on_signal)
+    signal.signal(signal.SIGTERM, _on_signal)
+
     async def _auto_scan():
         await asyncio.sleep(0.8)
         await _do_scan(cfg, nfs, repo)
@@ -285,7 +308,7 @@ async def run_test(config_path: str | None = None, port: int | None = None):
     print(f"  URL:   http://localhost:{listen_port}")
     print(f"  NAS:   {cfg.mount.remote_host}:{cfg.mount.remote_share}")
     print(f"  Roots: {', '.join(cfg.sync.sync_roots)}")
-    print(f"  Stop:  Ctrl+C  of  POST /api/stop\n")
+    print(f"  Stop:  Ctrl+C\n")
 
     await server.serve()
 
