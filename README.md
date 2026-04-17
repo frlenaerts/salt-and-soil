@@ -228,6 +228,8 @@ Once key-based login works you can set `PasswordAuthentication no` again on the 
 
 ## Running
 
+### During development / testing
+
 ```bash
 cd /opt/salt-and-soil
 source .venv/bin/activate
@@ -238,10 +240,20 @@ Open the web UI at `http://<container-ip>:<port>` (default port 8080).
 
 The agent runs the same command on its container — it exposes a REST API, no UI.
 
-To install as a systemd service:
+### Production (systemd service)
+
+For permanent deployment, install both nodes as a systemd service so they start automatically on boot:
 
 ```bash
 bash scripts/install-service.sh
+```
+
+The service handles venv activation and `PYTHONPATH` automatically. Use standard systemd commands to manage it:
+
+```bash
+systemctl status salt-and-soil
+systemctl restart salt-and-soil
+journalctl -u salt-and-soil -f
 ```
 
 ---
