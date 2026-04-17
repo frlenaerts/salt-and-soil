@@ -78,7 +78,19 @@ ts = TestState()
 # ── FastAPI test app ───────────────────────────────────────────────────────────
 
 def create_test_app(cfg, nfs: NFSMount, repo: StateRepository) -> FastAPI:
-    app = FastAPI(title="Salt & Soil — Test Scan")
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def lifespan(app):
+        yield
+        log.info("Shutdown: unmounting NFS...")
+        try:
+            await nfs.unmount()
+            log.info("Unmounted.")
+        except Exception as e:
+            log.warning("Unmount on shutdown failed: %s", e)
+
+    app = FastAPI(title="Salt & Soil — Test Scan", lifespan=lifespan)
 
     # Load the shared template
     tmpl_path = Path(__file__).parent.parent / "src/salt_and_soil/templates/index.html"
@@ -243,9 +255,10 @@ async def run_test(config_path: str | None = None, port: int | None = None):
 
     uvi_cfg = uvicorn.Config(
         fastapi_app,
-        host      = "0.0.0.0",
-        port      = listen_port,
-        log_level = "warning",   # keep uvicorn quiet
+        host                     = "0.0.0.0",
+        port                     = listen_port,
+        log_level                = "warning",
+        timeout_graceful_shutdown = 3,  # force-close SSE connections on Ctrl+C
     )
     server = uvicorn.Server(uvi_cfg)
     ts._server = server

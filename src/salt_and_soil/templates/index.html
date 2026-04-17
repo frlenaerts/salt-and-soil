@@ -115,7 +115,19 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
 .btn-execute:hover:not(:disabled) { background: var(--teal-dark); }
 
 /* ── Action row ── */
-.action-row { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+.action-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+
+/* ── Progress bar ── */
+.progress-wrap {
+  height: 3px; background: var(--border); border-radius: 2px;
+  margin-bottom: 20px; overflow: hidden; display: none;
+}
+.progress-wrap.visible { display: block; }
+.progress-inner {
+  height: 100%; width: 35%; background: var(--teal); border-radius: 2px;
+  animation: prog 1.4s ease-in-out infinite;
+}
+@keyframes prog { 0%{transform:translateX(-100%)} 100%{transform:translateX(380%)} }
 
 /* ── Mount info bar ── */
 .mount-bar {
@@ -274,6 +286,7 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
     <button class="btn btn-primary" id="btn-scan" onclick="startScan()">▶ &nbsp;Start Scan</button>
     <button class="btn btn-outline" onclick="doReset()">↺ &nbsp;Reset</button>
   </div>
+  <div class="progress-wrap" id="progress-wrap"><div class="progress-inner"></div></div>
 
   <div class="tab-bar">
     <button class="tab-btn active" id="tab-btn-folders" onclick="showTab('folders')">Folders</button>
@@ -326,6 +339,7 @@ const DEFAULT_ACTION = {
 };
 
 function key(d) { return d.sync_root + '|||' + d.name; }
+function rootId(root) { return 'root-icon-' + root.replace(/[^a-zA-Z0-9]/g, '_'); }
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 function showTab(name) {
@@ -362,6 +376,7 @@ function setStatus(s) {
   const busy = ['mounting','scanning','syncing'].includes(s);
   btn.disabled = busy;
   btn.innerHTML = busy ? '⏳ &nbsp;Busy…' : '▶ &nbsp;Start Scan';
+  document.getElementById('progress-wrap').classList.toggle('visible', ['mounting','scanning'].includes(s));
 }
 
 // ── Log ───────────────────────────────────────────────────────────────────────
@@ -420,7 +435,7 @@ function doReset() {
 // ── Collapsible root rows ─────────────────────────────────────────────────────
 function toggleRoot(root) {
   collapsed[root] = !collapsed[root];
-  const icon = document.getElementById('root-icon-' + CSS.escape(root));
+  const icon = document.getElementById(rootId(root));
   if (icon) icon.textContent = collapsed[root] ? '▶' : '▼';
   document.querySelectorAll(`[data-root="${root}"]`).forEach(tr => {
     tr.style.display = collapsed[root] ? 'none' : '';
@@ -449,11 +464,12 @@ function renderFolders() {
 
   const tbody = document.getElementById('diff-tbody');
   roots.forEach(root => {
-    const isCollapsed = !!collapsed[root];
+    if (!(root in collapsed)) collapsed[root] = true;  // default collapsed
+    const isCollapsed = collapsed[root];
     const tr = document.createElement('tr');
     tr.className = 'root-row';
     tr.onclick = () => toggleRoot(root);
-    tr.innerHTML = `<td colspan="5"><span class="root-icon" id="root-icon-${root}">${isCollapsed ? '▶' : '▼'}</span>/${root}</td>`;
+    tr.innerHTML = `<td colspan="5"><span class="root-icon" id="${rootId(root)}">${isCollapsed ? '▶' : '▼'}</span>/${root}</td>`;
     tbody.appendChild(tr);
 
     grouped[root].forEach(d => {
