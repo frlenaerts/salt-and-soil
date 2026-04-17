@@ -46,7 +46,6 @@ ssh_host          = "10.0.0.2"            # IP for rsync over SSH
 ssh_user          = "root"
 ssh_key_file      = "/root/.ssh/saltsoil_key"
 remote_mount_path = "/mnt/salt-and-soil"  # Mount path on the agent node
-remote_share      = "/volume1/video"      # NFS share on the agent's NAS (display only)
 
 # Multiple agents are supported:
 # [[agents]]
