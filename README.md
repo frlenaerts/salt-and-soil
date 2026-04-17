@@ -190,7 +190,26 @@ On each Synology NAS, go to **Control Panel → Shared Folder → [folder] → E
 
 ## SSH key setup (orchestrator → agent)
 
-After bootstrapping both containers, copy the orchestrator's SSH key to the agent so rsync can connect without a password:
+Before copying the key, SSH on the **agent container** must allow root login and password authentication. Edit `/etc/ssh/sshd_config` on the agent:
+
+```bash
+nano /etc/ssh/sshd_config
+```
+
+Set or add these two lines:
+
+```
+PermitRootLogin yes
+PasswordAuthentication yes
+```
+
+Restart SSH:
+
+```bash
+systemctl restart sshd
+```
+
+Now copy the orchestrator's key to the agent:
 
 ```bash
 # On the orchestrator container
@@ -202,6 +221,8 @@ Test the connection:
 ```bash
 ssh -i /root/.ssh/saltsoil_key root@<agent-tailscale-ip>
 ```
+
+Once key-based login works you can set `PasswordAuthentication no` again on the agent for security.
 
 ---
 
