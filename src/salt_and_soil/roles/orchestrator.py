@@ -102,8 +102,8 @@ class OrchestratorRuntime:
         self.status = AppStatus.MOUNTING
         _did_mount  = False
         try:
-            # 1. Mount local NAS
-            self._info(f"Mounting local NAS: {self.nfs.host}:{self.nfs.share}...")
+            # 1. Mount orchestrator NAS
+            self._info(f"[orchestrator] Mounting {self.nfs.host}:{self.nfs.share}...")
             info = await self.nfs.mount()
             _did_mount = True
             self._mount_info = {
@@ -115,7 +115,7 @@ class OrchestratorRuntime:
                 "free":        human_size(info.free_bytes),
             }
             assert_mount_ok(info)
-            self._info(f"Mounted — {human_size(info.total_bytes)} total, {human_size(info.free_bytes)} free")
+            self._info(f"[orchestrator] Mounted — {human_size(info.total_bytes)} total, {human_size(info.free_bytes)} free")
 
             if is_path_empty(self.cfg.mount.local_mount_path):
                 raise MountCheckError("Mount path is empty — NFS share may not be configured correctly")
@@ -123,15 +123,15 @@ class OrchestratorRuntime:
             # 2. Mount agent NAS(es)
             for i, agent in enumerate(self.agents):
                 agent_cfg = self.cfg.agents[i]
-                self._info(f"Mounting agent '{agent_cfg.name}' via {agent_cfg.host}...")
+                self._info(f"[{agent_cfg.name}] Mounting {agent_cfg.host}...")
                 resp = await agent.mount()
                 if not resp.ok:
-                    raise RuntimeError(f"Agent mount failed: {resp.error}")
-                self._info(f"Agent '{agent_cfg.name}' mounted")
+                    raise RuntimeError(f"[{agent_cfg.name}] Mount failed: {resp.error}")
+                self._info(f"[{agent_cfg.name}] Mounted")
 
-            # 3. Scan local
+            # 3. Scan orchestrator
             self.status = AppStatus.SCANNING
-            self._info(f"Scanning local: {', '.join(self.cfg.sync.sync_roots)}...")
+            self._info(f"[orchestrator] Scanning: {', '.join(self.cfg.sync.sync_roots)}...")
             scanner = DirScanner(
                 mount_point = self.cfg.mount.local_mount_path,
                 sync_roots  = self.cfg.sync.sync_roots,
@@ -141,14 +141,14 @@ class OrchestratorRuntime:
             for snap in await scanner.scan_all():
                 local_snaps[snap.sync_root] = snap
                 self.repo.save_snapshot(snap)
-                self._info(f"  /{snap.sync_root}: {snap.entry_count} folders, {human_size(snap.total_size)}")
+                self._info(f"[orchestrator] /{snap.sync_root}: {snap.entry_count} folders, {human_size(snap.total_size)}")
 
             # 4. Scan agent(s)
             remote_snaps: dict[str, ScanSnapshot] = {}
             for i, agent in enumerate(self.agents):
                 agent_cfg = self.cfg.agents[i]
                 for root in self.cfg.sync.sync_roots:
-                    self._info(f"Scanning agent '{agent_cfg.name}': /{root}...")
+                    self._info(f"[{agent_cfg.name}] Scanning /{root}...")
                     resp = await agent.list_dirs(root)
                     from ..scanner.models import ScanEntry
                     entries = [
@@ -170,10 +170,10 @@ class OrchestratorRuntime:
                         total_size  = sum(d.size_bytes for d in resp.dirs),
                     )
                     remote_snaps[root] = remote_snap
-                    self._info(f"  /{root}: {remote_snap.entry_count} folders, {human_size(remote_snap.total_size)}")
+                    self._info(f"[{agent_cfg.name}] /{root}: {remote_snap.entry_count} folders, {human_size(remote_snap.total_size)}")
 
             # 5. Compare
-            self._info("Comparing local ↔ remote...")
+            self._info("Comparing orchestrator ↔ agent...")
             all_diffs = []
             for root in self.cfg.sync.sync_roots:
                 diffs = compare(local_snaps[root], remote_snaps.get(root))
@@ -204,31 +204,31 @@ class OrchestratorRuntime:
 
         finally:
             if _did_mount:
-                self._info("Unmounting...")
                 try:
                     await self.nfs.unmount()
+                    self._info("[orchestrator] Unmounted")
                 except Exception as e:
-                    self._err(f"Local unmount failed: {e}")
+                    self._err(f"[orchestrator] Unmount failed: {e}")
                 for i, agent in enumerate(self.agents):
                     try:
                         await agent.unmount()
-                    except Exception:
-                        pass
-                self._info("NFS unmounted")
+                        self._info(f"[{self.cfg.agents[i].name}] Unmounted")
+                    except Exception as e:
+                        self._err(f"[{self.cfg.agents[i].name}] Unmount failed: {e}")
 
     async def run_sync(self, actions: list[ActionItem]):
         try:
             # Re-mount (scan already unmounted after completing)
-            self._info(f"Mounting for sync: {self.nfs.host}:{self.nfs.share}...")
+            self._info(f"[orchestrator] Mounting {self.nfs.host}:{self.nfs.share}...")
             info = await self.nfs.mount()
             assert_mount_ok(info)
-            self._info("Mounted")
+            self._info("[orchestrator] Mounted")
             for i, agent in enumerate(self.agents):
                 agent_cfg = self.cfg.agents[i]
                 resp = await agent.mount()
                 if not resp.ok:
-                    raise RuntimeError(f"Agent mount failed: {resp.error}")
-                self._info(f"Agent '{agent_cfg.name}' mounted")
+                    raise RuntimeError(f"[{agent_cfg.name}] Mount failed: {resp.error}")
+                self._info(f"[{agent_cfg.name}] Mounted")
 
             # Update planned actions based on user selections
             action_map = {(a.sync_root, a.folder): a.action for a in actions}
@@ -261,11 +261,11 @@ class OrchestratorRuntime:
                 async for line in executor.execute(job):
                     self._log.append(f"   {line}")
 
-            self._info("Unmounting...")
             await self.nfs.unmount()
+            self._info("[orchestrator] Unmounted")
             for i, agent in enumerate(self.agents):
                 await agent.unmount()
-                self._info(f"Agent '{self.cfg.agents[i].name}' unmounted")
+                self._info(f"[{self.cfg.agents[i].name}] Unmounted")
 
             state = self.repo.load_state(self.cfg.app.node_name, self.cfg.app.role.value)
             state.last_sync_at = utc_now_iso()
