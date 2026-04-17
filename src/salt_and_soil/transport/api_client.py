@@ -36,7 +36,7 @@ class AgentAPIClient:
         async with self._client(timeout=120) as c:
             r = await c.get(f"{self.base_url}/list", params={"root": sync_root})
             r.raise_for_status()
-            return ListDirsResponse(**r.json())
+            return ListDirsResponse.from_dict(r.json())
 
     async def health(self) -> bool:
         try:

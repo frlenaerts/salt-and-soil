@@ -47,6 +47,13 @@ class ListDirsResponse:
     def to_dict(self) -> dict:
         return {"sync_root": self.sync_root, "dirs": [d.to_dict() for d in self.dirs]}
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "ListDirsResponse":
+        return cls(
+            sync_root = d["sync_root"],
+            dirs      = [DirEntry(**e) for e in d.get("dirs", [])],
+        )
+
 
 @dataclass
 class MountResponse:
