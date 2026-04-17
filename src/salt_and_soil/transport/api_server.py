@@ -117,11 +117,12 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
                     cur_len = len(snap["log"])
                     if snap["status"] != sent_status or cur_len != sent_log:
                         payload = {
-                            "status":  snap["status"],
-                            "new_log": snap["log"][sent_log:],
-                            "diffs":   snap["diffs"] if snap["status"] in ("ready", "syncing", "done") else [],
-                            "mount":   snap.get("mount"),
-                            "error":   snap.get("error"),
+                            "status":       snap["status"],
+                            "new_log":      snap["log"][sent_log:],
+                            "diffs":        snap["diffs"] if snap["status"] in ("ready", "syncing", "done") else [],
+                            "mount":        snap.get("mount"),
+                            "error":        snap.get("error"),
+                            "last_scan_at": snap.get("last_scan_at"),
                         }
                         yield f"data: {json.dumps(payload)}\n\n"
                         sent_log    = cur_len
