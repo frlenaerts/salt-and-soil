@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import shlex
 from typing import AsyncIterator
 
 from ..state.models import SyncJob
 from ..shared.enums import SyncAction, JobStatus
 from ..shared.clock import utc_now_iso
+from ..shared.paths import human_size
 
 
 class SyncExecutor:
@@ -58,7 +60,7 @@ class SyncExecutor:
             f"{self.remote_mount}/{job.sync_root}/{job.folder}/"
         )
         cmd = [
-            "rsync", "-avz", "--partial",
+            "rsync", "-avz", "--progress", "--partial",
             "-e", self._ssh_opts,
             src, dst,
         ]
@@ -67,13 +69,40 @@ class SyncExecutor:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
+        current_file: str | None = None
         async for raw in proc.stdout:
-            line = raw.decode(errors="replace").rstrip()
-            if line:
-                yield line
+            chunk = raw.decode(errors="replace")
+            for part in re.split(r"[\r\n]+", chunk):
+                part = part.strip()
+                if not part:
+                    continue
+                if "%" in part:
+                    if "100%" in part:
+                        line = self._format_progress(current_file, part)
+                        if line:
+                            yield line
+                else:
+                    name = part.split("/")[-1]
+                    if name and "." in name:
+                        current_file = name
         await proc.wait()
         if proc.returncode != 0:
             raise RuntimeError(f"rsync exit {proc.returncode}")
+
+    @staticmethod
+    def _format_progress(filename: str | None, line: str) -> str | None:
+        m = re.search(
+            r"([\d,]+)\s+100%\s+([\d.]+\s*\S+/s).*xfr#(\d+).*to-chk=\d+/(\d+)",
+            line,
+        )
+        if not m:
+            return None
+        size   = human_size(int(m.group(1).replace(",", "")))
+        speed  = m.group(2)
+        num    = m.group(3)
+        total  = m.group(4)
+        name   = filename or "?"
+        return f"{name} — {size} — {speed} — ({num}/{total})"
 
     async def _delete_remote(self, job: SyncJob) -> AsyncIterator[str]:
         path = f"{self.remote_mount}/{job.sync_root}/{job.folder}"
