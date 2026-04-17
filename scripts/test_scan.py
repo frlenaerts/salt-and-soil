@@ -58,15 +58,15 @@ class TestState:
     @staticmethod
     def _ts() -> str:
         from datetime import datetime
-        return datetime.now().strftime("%H:%M:%S")
+        return datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
     def info(self, msg: str):
         log.info(msg)
-        self._log.append(f"{self._ts()}  {msg}")
+        self._log.append(f"{self._ts()} - {msg}")
 
     def err(self, msg: str):
         log.error(msg)
-        self._log.append(f"{self._ts()}  ⚠ {msg}")
+        self._log.append(f"{self._ts()} - ⚠ {msg}")
 
     def reset(self):
         self._log      = []
@@ -208,7 +208,7 @@ async def _do_scan(cfg, nfs: NFSMount, repo: StateRepository):
             "free":       human_size(info.free_bytes),
         }
         assert_mount_ok(info)
-        ts.info(f"✓ Mounted — {human_size(info.total_bytes)} total, {human_size(info.free_bytes)} free")
+        ts.info(f"Mounted — {human_size(info.total_bytes)} total, {human_size(info.free_bytes)} free")
 
         if is_path_empty(cfg.mount.local_mount_path):
             raise MountCheckError("Mount path is empty — NFS share not reachable?")

@@ -65,15 +65,15 @@ class OrchestratorRuntime:
     @staticmethod
     def _ts() -> str:
         from datetime import datetime
-        return datetime.now().strftime("%H:%M:%S")
+        return datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
     def _info(self, msg: str):
         log.info(msg)
-        self._log.append(f"{self._ts()}  {msg}")
+        self._log.append(f"{self._ts()} - {msg}")
 
     def _err(self, msg: str):
         log.error(msg)
-        self._log.append(f"{self._ts()}  ⚠ {msg}")
+        self._log.append(f"{self._ts()} - ⚠ {msg}")
 
     # ── Reset ─────────────────────────────────────────────────────────────────
 
@@ -115,7 +115,7 @@ class OrchestratorRuntime:
                 "free":        human_size(info.free_bytes),
             }
             assert_mount_ok(info)
-            self._info(f"✓ Mounted — {human_size(info.total_bytes)} total, {human_size(info.free_bytes)} free")
+            self._info(f"Mounted — {human_size(info.total_bytes)} total, {human_size(info.free_bytes)} free")
 
             if is_path_empty(self.cfg.mount.local_mount_path):
                 raise MountCheckError("Mount path is empty — NFS share may not be configured correctly")
@@ -127,7 +127,7 @@ class OrchestratorRuntime:
                 resp = await agent.mount()
                 if not resp.ok:
                     raise RuntimeError(f"Agent mount failed: {resp.error}")
-                self._info(f"✓ Agent '{agent_cfg.name}' mounted")
+                self._info(f"Agent '{agent_cfg.name}' mounted")
 
             # 3. Scan local
             self.status = AppStatus.SCANNING
@@ -214,7 +214,7 @@ class OrchestratorRuntime:
                         await agent.unmount()
                     except Exception:
                         pass
-                self._info("✓ NFS unmounted")
+                self._info("NFS unmounted")
 
     async def run_sync(self, actions: list[ActionItem]):
         try:
@@ -222,13 +222,13 @@ class OrchestratorRuntime:
             self._info(f"Mounting for sync: {self.nfs.host}:{self.nfs.share}...")
             info = await self.nfs.mount()
             assert_mount_ok(info)
-            self._info("✓ Mounted")
+            self._info("Mounted")
             for i, agent in enumerate(self.agents):
                 agent_cfg = self.cfg.agents[i]
                 resp = await agent.mount()
                 if not resp.ok:
                     raise RuntimeError(f"Agent mount failed: {resp.error}")
-                self._info(f"✓ Agent '{agent_cfg.name}' mounted")
+                self._info(f"Agent '{agent_cfg.name}' mounted")
 
             # Update planned actions based on user selections
             action_map = {(a.sync_root, a.folder): a.action for a in actions}
