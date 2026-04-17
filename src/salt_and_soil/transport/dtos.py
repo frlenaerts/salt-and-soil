@@ -57,13 +57,19 @@ class ListDirsResponse:
 
 @dataclass
 class MountResponse:
-    ok:      bool
-    mounted: bool
-    msg:     str = ""
-    error:   str = ""
+    ok:          bool
+    mounted:     bool
+    msg:         str = ""
+    error:       str = ""
+    total_bytes: int = 0
+    free_bytes:  int = 0
 
     def to_dict(self) -> dict:
-        return {"ok": self.ok, "mounted": self.mounted, "msg": self.msg, "error": self.error}
+        return {
+            "ok": self.ok, "mounted": self.mounted,
+            "msg": self.msg, "error": self.error,
+            "total_bytes": self.total_bytes, "free_bytes": self.free_bytes,
+        }
 
 
 @dataclass

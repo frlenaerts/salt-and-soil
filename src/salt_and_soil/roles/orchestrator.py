@@ -131,7 +131,8 @@ class OrchestratorRuntime:
                 resp = await agent.mount()
                 if not resp.ok:
                     raise RuntimeError(f"[{agent_cfg.name}] Mount failed: {resp.error}")
-                self._info(f"[{agent_cfg.name}] Mounted")
+                size_info = f" — {human_size(resp.total_bytes)} total, {human_size(resp.free_bytes)} free" if resp.total_bytes else ""
+                self._info(f"[{agent_cfg.name}] Mounted{size_info}")
 
             # 3. Scan orchestrator
             self.status = AppStatus.SCANNING
@@ -232,7 +233,8 @@ class OrchestratorRuntime:
                 resp = await agent.mount()
                 if not resp.ok:
                     raise RuntimeError(f"[{agent_cfg.name}] Mount failed: {resp.error}")
-                self._info(f"[{agent_cfg.name}] Mounted")
+                size_info = f" — {human_size(resp.total_bytes)} total, {human_size(resp.free_bytes)} free" if resp.total_bytes else ""
+                self._info(f"[{agent_cfg.name}] Mounted{size_info}")
 
             # Update planned actions based on user selections
             action_map = {(a.sync_root, a.folder): a.action for a in actions}

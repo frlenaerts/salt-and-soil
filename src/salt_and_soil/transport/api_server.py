@@ -166,10 +166,12 @@ def _register_agent_routes(app: FastAPI, cfg: Config, rt):
     async def mount():
         info = await rt.nfs.mount()
         return JSONResponse(MountResponse(
-            ok      = info.is_ok,
-            mounted = info.status.value == "mounted",
-            msg     = "Mounted" if info.is_ok else "",
-            error   = info.error,
+            ok          = info.is_ok,
+            mounted     = info.status.value == "mounted",
+            msg         = "Mounted" if info.is_ok else "",
+            error       = info.error,
+            total_bytes = info.total_bytes,
+            free_bytes  = info.free_bytes,
         ).to_dict())
 
     @app.post("/unmount")
