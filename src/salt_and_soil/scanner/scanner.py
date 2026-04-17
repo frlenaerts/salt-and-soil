@@ -40,9 +40,13 @@ class DirScanner:
             return snap
 
         entries = []
+        _SKIP = {"@eaDir", "@recycle", "#recycle", ".DS_Store"}
+
         try:
             for entry in sorted(root_path.iterdir(), key=lambda e: e.name):
                 if entry.is_symlink() or not entry.is_dir():
+                    continue
+                if entry.name in _SKIP or entry.name.startswith("@"):
                     continue
                 size  = await self._dir_size(entry)
                 mtime = await self._mtime(entry)
