@@ -401,9 +401,9 @@ function appendLog(lines) {
 function updateLastScan(iso) {
   if (!iso) return;
   const d = new Date(iso);
-  const label = document.getElementById('last-scan-label');
-  label.textContent = 'Last scan: ' + d.toLocaleDateString() + ' ' +
-    d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  const pad = n => String(n).padStart(2, '0');
+  const fmt = `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  document.getElementById('last-scan-label').textContent = 'Last scan: ' + fmt;
 }
 
 // ── Scan ──────────────────────────────────────────────────────────────────────
