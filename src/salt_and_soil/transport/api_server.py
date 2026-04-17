@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import signal
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -33,8 +34,26 @@ def create_app(cfg: Config, runtime) -> FastAPI:
     async def lifespan(app):
         global _running
         _running = True
-        yield
-        _running = False   # SSE generators exit within 0.4 s
+
+        # Install signal handler NOW (after uvicorn's capture_signals) so
+        # _running = False fires immediately on Ctrl+C, closing SSE generators
+        # before uvicorn starts waiting for connections.
+        loop = asyncio.get_running_loop()
+
+        def _on_signal():
+            global _running
+            _running = False
+
+        try:
+            loop.add_signal_handler(signal.SIGINT,  _on_signal)
+            loop.add_signal_handler(signal.SIGTERM, _on_signal)
+        except (NotImplementedError, RuntimeError):
+            pass  # Windows / edge cases
+
+        try:
+            yield
+        finally:
+            _running = False
 
     app = FastAPI(title="Salt & Soil", lifespan=lifespan)
 
