@@ -72,9 +72,15 @@ class SyncExecutor:
             stderr=asyncio.subprocess.STDOUT,
         )
         current_file: str | None = None
-        async for raw in proc.stdout:
-            chunk = raw.decode(errors="replace")
-            for part in re.split(r"[\r\n]+", chunk):
+        buf = ""
+        while True:
+            chunk_bytes = await proc.stdout.read(4096)
+            if not chunk_bytes:
+                break
+            buf += chunk_bytes.decode(errors="replace")
+            parts = re.split(r"[\r\n]+", buf)
+            buf = parts[-1]
+            for part in parts[:-1]:
                 part = part.strip()
                 if not part:
                     continue
@@ -87,6 +93,12 @@ class SyncExecutor:
                     name = part.split("/")[-1]
                     if name and "." in name:
                         current_file = name
+        for part in re.split(r"[\r\n]+", buf):
+            part = part.strip()
+            if part and "100%" in part:
+                line = self._format_progress(current_file, part)
+                if line:
+                    yield line
         await proc.wait()
         if proc.returncode != 0:
             raise RuntimeError(f"rsync exit {proc.returncode}")
