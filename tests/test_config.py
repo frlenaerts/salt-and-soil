@@ -1,5 +1,5 @@
 """
-test_config.py — unit tests voor config loader
+test_config.py — unit tests for the config loader
 """
 import sys
 import tempfile
@@ -37,7 +37,7 @@ ORCHESTRATOR_TOML = textwrap.dedent("""
     snapshot_dir = "/tmp/snapshots"
 
     [[agents]]
-    name         = "agent-knokke"
+    name         = "agent-01"
     host         = "10.0.0.5"
     port         = 8081
     ssh_host     = "10.0.0.5"
@@ -48,7 +48,7 @@ ORCHESTRATOR_TOML = textwrap.dedent("""
 AGENT_TOML = textwrap.dedent("""
     [app]
     role      = "agent"
-    node_name = "agent-knokke"
+    node_name = "agent-01"
 
     [server]
     port = 8081
@@ -88,7 +88,7 @@ def test_sync_roots():
 def test_agents_parsed():
     cfg = load(_write(ORCHESTRATOR_TOML))
     assert len(cfg.agents) == 1
-    assert cfg.agents[0].name == "agent-knokke"
+    assert cfg.agents[0].name == "agent-01"
 
 def test_agent_role():
     cfg = load(_write(AGENT_TOML))

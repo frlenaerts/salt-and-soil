@@ -1,6 +1,5 @@
 """
-Voert een scan uit en print de resultaten — handig voor debugging
-zonder de volledige web server te starten.
+Runs a scan and prints the results — useful for debugging without starting the full web server.
 """
 from __future__ import annotations
 import asyncio
@@ -27,9 +26,9 @@ async def scan_and_print(config_path: str | None = None, roots: list[str] | None
     for snap in await scanner.scan_all():
         repo.save_snapshot(snap)
         dirs = snap.top_level_dirs()
-        print(f"  /{snap.sync_root}  ({len(dirs)} mappen, {human_size(snap.total_size)})")
+        print(f"  /{snap.sync_root}  ({len(dirs)} folders, {human_size(snap.total_size)})")
         for e in dirs:
             print(f"    {e.relative_path:<42} {e.size_hr():>10}")
         if snap.error:
-            print(f"  ! Fout: {snap.error}")
+            print(f"  ! Error: {snap.error}")
         print()

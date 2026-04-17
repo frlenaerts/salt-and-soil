@@ -1,7 +1,7 @@
 """
 api_server.py
 
-Eén FastAPI applicatie — rol bepaalt welke routes actief zijn:
+Single FastAPI application — role determines which routes are active:
   orchestrator → web UI + scan/execute API
   agent        → /mount /unmount /list /status /health
 """
@@ -55,7 +55,7 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
     @app.post("/api/start")
     async def start(background_tasks: BackgroundTasks):
         if rt.status not in (AppStatus.IDLE, AppStatus.DONE, AppStatus.ERROR):
-            raise HTTPException(400, "Bezig")
+            raise HTTPException(400, "Busy")
         rt.reset()
         background_tasks.add_task(rt.run_scan)
         return {"ok": True}
@@ -89,7 +89,7 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
     @app.post("/api/execute")
     async def execute(request: Request, background_tasks: BackgroundTasks):
         if rt.status != AppStatus.READY:
-            raise HTTPException(400, "Scan eerst")
+            raise HTTPException(400, "Scan first")
         body = await request.json()
         req  = ExecuteRequest.from_dict(body)
         rt.status = AppStatus.SYNCING
@@ -119,7 +119,7 @@ def _register_agent_routes(app: FastAPI, cfg: Config, rt):
         return JSONResponse(MountResponse(
             ok      = info.is_ok,
             mounted = info.status.value == "mounted",
-            msg     = "Gemount" if info.is_ok else "",
+            msg     = "Mounted" if info.is_ok else "",
             error   = info.error,
         ).to_dict())
 
@@ -128,7 +128,7 @@ def _register_agent_routes(app: FastAPI, cfg: Config, rt):
         ok = await rt.nfs.unmount()
         return JSONResponse(MountResponse(
             ok=ok, mounted=False,
-            msg="Ontkoppeld" if ok else "Fout",
+            msg="Unmounted" if ok else "Error",
         ).to_dict())
 
     @app.get("/status")
@@ -148,7 +148,7 @@ def _register_agent_routes(app: FastAPI, cfg: Config, rt):
     @app.get("/list")
     async def list_dirs(root: str = "videos"):
         if root not in cfg.sync.sync_roots:
-            raise HTTPException(400, f"Sync root '{root}' niet toegestaan")
+            raise HTTPException(400, f"Sync root '{root}' not allowed")
         dirs = await rt.scan_root(root)
         return JSONResponse(ListDirsResponse(sync_root=root, dirs=dirs).to_dict())
 

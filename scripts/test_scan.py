@@ -2,16 +2,16 @@
 """
 test_scan.py
 
-Start een lokale Salt & Soil orchestrator in 'test-modus':
+Starts a local Salt & Soil orchestrator in 'test mode':
 
-  1. Laad config (standaard config/config.toml)
-  2. Mount de lokale NAS via NFS
-  3. Scan alle sync_roots
-  4. Bouw een read-only web UI op http://localhost:<port>
-     → toont alle mappen met groottes, diff-status (lokaal only, want geen agent)
-  5. Knop "Unmount & Stop" in de UI ontkoppelt de NAS en stopt de server
+  1. Load config (default config/config.toml)
+  2. Mount the local NAS via NFS
+  3. Scan all sync_roots
+  4. Serve a read-only web UI at http://localhost:<port>
+     → shows all folders with sizes, diff status (local only, no agent)
+  5. "Unmount & Stop" button in the UI unmounts the NAS and stops the server
 
-Gebruik:
+Usage:
   python scripts/test_scan.py
   python scripts/test_scan.py --config config/orchestrator.toml
   python scripts/test_scan.py --port 9090
@@ -27,7 +27,7 @@ import signal
 import sys
 from pathlib import Path
 
-# Zorg dat de src/ map in het pad zit
+# Ensure the src/ directory is on the path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import uvicorn
@@ -82,7 +82,7 @@ def create_test_app(cfg, nfs: NFSMount, repo: StateRepository) -> FastAPI:
 
     # Load the shared template
     tmpl_path = Path(__file__).parent.parent / "src/salt_and_soil/templates/index.html"
-    tmpl_html = tmpl_path.read_text() if tmpl_path.exists() else "<h1>Template niet gevonden</h1>"
+    tmpl_html = tmpl_path.read_text() if tmpl_path.exists() else "<h1>Template not found</h1>"
 
     @app.get("/", response_class=HTMLResponse)
     async def index():
@@ -90,9 +90,9 @@ def create_test_app(cfg, nfs: NFSMount, repo: StateRepository) -> FastAPI:
 
     @app.post("/api/start")
     async def start():
-        """In test modus: herstart de scan."""
+        """In test mode: restart the scan."""
         if ts.status in (AppStatus.MOUNTING, AppStatus.SCANNING):
-            return {"error": "Bezig"}
+            return {"error": "Busy"}
         ts._log = []; ts._diffs = []; ts._error = ""; ts._mount = None
         asyncio.create_task(_do_scan(cfg, nfs, repo))
         return {"ok": True}
@@ -116,7 +116,7 @@ def create_test_app(cfg, nfs: NFSMount, repo: StateRepository) -> FastAPI:
 
     @app.post("/api/reset")
     async def reset():
-        """Herstart: unmount + reset state."""
+        """Restart: unmount + reset state."""
         await nfs.unmount()
         ts.status = AppStatus.IDLE
         ts._log   = []; ts._diffs = []; ts._mount = None; ts._error = ""
@@ -124,17 +124,17 @@ def create_test_app(cfg, nfs: NFSMount, repo: StateRepository) -> FastAPI:
 
     @app.post("/api/stop")
     async def stop():
-        """Unmount en stop de server."""
-        ts.info("Unmounten...")
+        """Unmount and stop the server."""
+        ts.info("Unmounting...")
         await nfs.unmount()
-        ts.info("Server stopt over 1 seconde.")
+        ts.info("Server stopping in 1 second.")
         asyncio.create_task(_delayed_stop())
         return {"ok": True}
 
     # Disable sync execute in test mode (no agent)
     @app.post("/api/execute")
     async def execute_disabled():
-        return {"error": "Sync niet beschikbaar in test-modus (geen agent geconfigureerd)"}
+        return {"error": "Sync not available in test mode (no agent configured)"}
 
     @app.get("/api/snapshots")
     async def snapshots():
@@ -153,7 +153,7 @@ async def _do_scan(cfg, nfs: NFSMount, repo: StateRepository):
     ts.status = AppStatus.MOUNTING
     try:
         # 1. Mount
-        ts.info(f"NAS mounten: {nfs.host}:{nfs.share} → {nfs.mount_point}")
+        ts.info(f"Mounting NAS: {nfs.host}:{nfs.share} → {nfs.mount_point}")
         info = await nfs.mount()
         ts._mount = {
             "source":     info.source,
@@ -164,10 +164,10 @@ async def _do_scan(cfg, nfs: NFSMount, repo: StateRepository):
             "free":       human_size(info.free_bytes),
         }
         assert_mount_ok(info)
-        ts.info(f"✓ Gemount — {human_size(info.total_bytes)} totaal, {human_size(info.free_bytes)} vrij")
+        ts.info(f"✓ Mounted — {human_size(info.total_bytes)} total, {human_size(info.free_bytes)} free")
 
         if is_path_empty(cfg.mount.local_mount_path):
-            raise MountCheckError("Mount pad is leeg — NFS share niet bereikbaar?")
+            raise MountCheckError("Mount path is empty — NFS share not reachable?")
 
         # 2. Scan
         ts.status = AppStatus.SCANNING
@@ -180,7 +180,7 @@ async def _do_scan(cfg, nfs: NFSMount, repo: StateRepository):
         diffs = []
         for snap in await scanner.scan_all():
             repo.save_snapshot(snap)
-            ts.info(f"  /{snap.sync_root}: {snap.entry_count} mappen gevonden ({human_size(snap.total_size)})")
+            ts.info(f"  /{snap.sync_root}: {snap.entry_count} folders found ({human_size(snap.total_size)})")
             for entry in snap.top_level_dirs():
                 diffs.append({
                     "sync_root":      snap.sync_root,
@@ -195,7 +195,7 @@ async def _do_scan(cfg, nfs: NFSMount, repo: StateRepository):
 
         ts._diffs = diffs
         ts.status = AppStatus.READY
-        ts.info(f"✓ Klaar — {len(diffs)} mappen gevonden. Klik 'Unmount & Stop' als je klaar bent.")
+        ts.info(f"✓ Done — {len(diffs)} folders found. Click 'Unmount & Stop' when finished.")
 
     except (MountCheckError, Exception) as e:
         ts._error = str(e)
@@ -214,10 +214,10 @@ async def run_test(config_path: str | None = None, port: int | None = None):
 
     cfg = load_config(config_path)
 
-    # Override port indien opgegeven
+    # Override port if provided
     listen_port = port or cfg.server.port
 
-    # Zorg voor data dirs
+    # Ensure data directories exist
     ensure_dir(cfg.app.data_dir + "/state/snapshots")
     ensure_dir(cfg.app.data_dir + "/cache")
     ensure_dir(cfg.app.data_dir + "/logs")
@@ -236,7 +236,7 @@ async def run_test(config_path: str | None = None, port: int | None = None):
 
     fastapi_app = create_test_app(cfg, nfs, repo)
 
-    # Start scan automatisch bij opstart
+    # Auto-start scan on startup
     log.info(f"Salt & Soil test-scan start op http://localhost:{listen_port}")
     log.info(f"Config: {cfg.app.node_name} ({cfg.app.role.value})")
     log.info(f"NAS: {cfg.mount.remote_host}:{cfg.mount.remote_share} → {cfg.mount.local_mount_path}")
@@ -245,7 +245,7 @@ async def run_test(config_path: str | None = None, port: int | None = None):
         fastapi_app,
         host      = "0.0.0.0",
         port      = listen_port,
-        log_level = "warning",   # uvicorn zelf stil houden
+        log_level = "warning",   # keep uvicorn quiet
     )
     server = uvicorn.Server(uvi_cfg)
     ts._server = server

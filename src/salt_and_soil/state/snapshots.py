@@ -1,6 +1,6 @@
 """
-Bewaart en laadt scan snapshots als JSON bestanden.
-Eén bestand per scan run: data/state/snapshots/2026-04-16T21-30-00__videos.json
+Saves and loads scan snapshots as JSON files.
+One file per scan run: data/state/snapshots/2026-04-16T21-30-00__videos.json
 """
 from __future__ import annotations
 

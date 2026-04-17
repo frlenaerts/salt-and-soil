@@ -44,5 +44,5 @@ class AgentAPIClient:
                 r = await c.get(f"{self.base_url}/health")
                 return r.status_code == 200
         except Exception as e:
-            log.debug("Health check mislukt voor %s: %s", self.base_url, e)
+            log.debug("Health check failed for %s: %s", self.base_url, e)
             return False

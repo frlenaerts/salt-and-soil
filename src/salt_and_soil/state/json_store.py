@@ -1,6 +1,6 @@
 """
-Lichte JSON state store — lees/schrijf state.json.
-Geen DB, geen ORM. Transparant en debugbaar.
+Lightweight JSON state store — read/write state.json.
+No DB, no ORM. Transparent and debuggable.
 """
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ class JSONStateStore:
                         bytes_transferred = j.get("bytes_transferred", 0),
                     ))
                 except (KeyError, ValueError) as e:
-                    log.warning("Ongeldige job in state, overgeslagen: %s", e)
+                    log.warning("Invalid job in state, skipped: %s", e)
             for d in raw.get("diffs", []):
                 try:
                     sf.diffs.append(FolderDiff(
@@ -59,10 +59,10 @@ class JSONStateStore:
                         planned_action = SyncAction(d.get("planned_action", "skip")),
                     ))
                 except (KeyError, ValueError) as e:
-                    log.warning("Ongeldige diff in state, overgeslagen: %s", e)
+                    log.warning("Invalid diff in state, skipped: %s", e)
             return sf
         except Exception as e:
-            log.warning("State bestand onleesbaar (%s), begin opnieuw", e)
+            log.warning("State file unreadable (%s), starting fresh", e)
             return StateFile(node_name=node_name, role=role)
 
     def save(self, state: StateFile) -> None:

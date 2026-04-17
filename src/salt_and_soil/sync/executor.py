@@ -49,7 +49,7 @@ class SyncExecutor:
             job.status      = JobStatus.FAILED
             job.error       = str(e)
             job.finished_at = utc_now_iso()
-            yield f"FOUT: {e}"
+            yield f"ERROR: {e}"
 
     async def _rsync(self, job: SyncJob) -> AsyncIterator[str]:
         src = os.path.join(self.local_mount, job.sync_root, job.folder) + "/"
@@ -89,5 +89,5 @@ class SyncExecutor:
         )
         await proc.wait()
         if proc.returncode != 0:
-            raise RuntimeError("delete mislukt")
-        yield "Verwijderd ✓"
+            raise RuntimeError("delete failed")
+        yield "Deleted ✓"

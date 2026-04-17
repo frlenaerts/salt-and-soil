@@ -1,10 +1,10 @@
 """
-CLI voor Salt & Soil.
+CLI for Salt & Soil.
 
   python -m salt_and_soil serve          # start web server
   python -m salt_and_soil serve --config ./config/agent.toml
-  python -m salt_and_soil scan           # scan zonder UI (debug)
-  python -m salt_and_soil test-mount     # mount, scan, toon UI, unmount na stop
+  python -m salt_and_soil scan           # scan without UI (debug)
+  python -m salt_and_soil test-mount     # mount, scan, show UI, unmount on stop
 """
 from __future__ import annotations
 
@@ -15,13 +15,13 @@ import sys
 
 def main():
     parser = argparse.ArgumentParser(prog="salt-and-soil")
-    parser.add_argument("--config", default=None, help="Pad naar config TOML bestand")
+    parser.add_argument("--config", default=None, help="Path to config TOML file")
     sub = parser.add_subparsers(dest="command")
 
-    sub.add_parser("serve",      help="Start de web server")
-    sub.add_parser("test-mount", help="Mount, scan, toon UI, unmount na stop")
+    sub.add_parser("serve",      help="Start the web server")
+    sub.add_parser("test-mount", help="Mount, scan, show UI, unmount on stop")
 
-    scan_p = sub.add_parser("scan", help="Scan en dump resultaat (geen UI)")
+    scan_p = sub.add_parser("scan", help="Scan and dump result (no UI)")
     scan_p.add_argument("--root", default=None)
 
     args = parser.parse_args()
@@ -49,7 +49,7 @@ def _cmd_serve():
 
 
 def _cmd_test_mount():
-    """Start de test-mount flow — zie scripts/test_scan.py voor details."""
+    """Start the test-mount flow — see scripts/test_scan.py for details."""
     import asyncio
     from scripts.test_scan import run_test
     asyncio.run(run_test())

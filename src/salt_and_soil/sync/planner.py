@@ -7,7 +7,7 @@ from ..shared.clock import utc_now_iso
 
 
 def build_jobs(diffs: list[FolderDiff]) -> list[SyncJob]:
-    """Zet FolderDiffs met een niet-skip actie om naar SyncJobs."""
+    """Converts FolderDiffs with a non-skip action into SyncJobs."""
     jobs = []
     for diff in diffs:
         if diff.planned_action == SyncAction.SKIP:

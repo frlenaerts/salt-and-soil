@@ -15,23 +15,23 @@ def assert_mount_ok(info: MountInfo) -> None:
     """Raises MountCheckError with a clear message if mount is not healthy."""
     if info.status != MountStatus.MOUNTED:
         raise MountCheckError(
-            f"Mount niet actief: {info.source} → {info.local_path} "
+            f"Mount not active: {info.source} → {info.local_path} "
             f"(status: {info.status.value})"
         )
     if not Path(info.local_path).exists():
         raise MountCheckError(
-            f"Mount path bestaat niet: {info.local_path}"
+            f"Mount path does not exist: {info.local_path}"
         )
     if not info.writable:
         raise MountCheckError(
-            f"Mount is read-only of niet schrijfbaar: {info.local_path}"
+            f"Mount is read-only or not writable: {info.local_path}"
         )
     if info.error:
-        raise MountCheckError(f"Mount fout: {info.error}")
+        raise MountCheckError(f"Mount error: {info.error}")
 
 
 def is_path_empty(path: str) -> bool:
-    """True als een directory leeg is — waarschuwingssignaal dat mount mislukt is."""
+    """True if a directory is empty — warning signal that the mount may have failed."""
     p = Path(path)
     if not p.exists():
         return True

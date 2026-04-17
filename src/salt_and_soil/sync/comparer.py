@@ -1,6 +1,6 @@
 """
-Vergelijkt een lokale snapshot met een remote snapshot.
-Geeft een lijst van FolderDiff terug.
+Compares a local snapshot with a remote snapshot.
+Returns a list of FolderDiff objects.
 """
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from ..state.models import FolderDiff
 from ..shared.enums import DiffStatus, SyncAction
 
 
-_SIZE_TOLERANCE = 0.01   # 1% verschil = nog als "in sync" beschouwen
+_SIZE_TOLERANCE = 0.01   # 1% difference is still considered "in sync"
 
 
 def compare(
@@ -17,8 +17,8 @@ def compare(
     remote: ScanSnapshot | None,
 ) -> list[FolderDiff]:
     """
-    local  = snapshot van orchestrator (master)
-    remote = snapshot van agent (kan None zijn als nog niet gescand)
+    local  = snapshot from orchestrator
+    remote = snapshot from agent (can be None if not yet scanned)
     """
     local_map  = {e.relative_path: e for e in local.entries if e.entry_type == "dir"}
     remote_map = {}

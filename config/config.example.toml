@@ -1,10 +1,10 @@
 # ─────────────────────────────────────────────────────────────────────────────
 #  Salt & Soil — config.example.toml
-#  Kopieer dit naar config/config.toml en pas aan.
+#  Copy this to config/config.toml and adjust to your environment.
 # ─────────────────────────────────────────────────────────────────────────────
 
 [app]
-role      = "orchestrator"    # "orchestrator" of "agent"
+role      = "orchestrator"    # "orchestrator" or "agent"
 node_name = "orchestrator-01"
 data_dir  = "./data"
 log_level = "INFO"            # DEBUG | INFO | WARNING | ERROR
@@ -14,44 +14,44 @@ log_level = "INFO"            # DEBUG | INFO | WARNING | ERROR
 host = "0.0.0.0"
 port = 8080
 
-# ── Lokale NAS mount (de NAS die op hetzelfde netwerk zit als deze node) ──────
+# ── Local NAS mount (the NAS on the same network as this node) ────────────────
 [mount]
 enabled          = true
 type             = "nfs"
-remote_host      = "192.168.1.100"        # IP van de NAS
-remote_share     = "/volume1"             # NFS export pad
-local_mount_path = "/mnt/salt-and-soil"   # Lokaal mount punt (in container of op NUC)
+remote_host      = "192.168.1.100"        # IP of the NAS
+remote_share     = "/volume1"             # NFS export path
+local_mount_path = "/mnt/salt-and-soil"   # Local mount point
 nfs_version      = 3
 nfs_options      = "soft,timeo=30,retrans=3"
 
-# ── Wat er gesynchroniseerd wordt ─────────────────────────────────────────────
+# ── What gets synchronised ────────────────────────────────────────────────────
 [sync]
 scan_on_startup   = false
 auto_resume       = true
 compare_mode      = "size_mtime"  # "size_mtime" | "checksum"
 max_parallel_jobs = 2
-sync_roots        = ["videos"]    # lijst van submappen in de NFS share
-# sync_roots      = ["videos", "music", "fotos"]
+sync_roots        = ["videos"]    # subdirectories inside the NFS share
+# sync_roots      = ["videos", "music", "photos"]
 
-# ── Lokale state opslag ───────────────────────────────────────────────────────
+# ── Local state storage ───────────────────────────────────────────────────────
 [state]
 backend      = "json"
 state_file   = "./data/state/state.json"
 snapshot_dir = "./data/state/snapshots"
 
-# ── Agent verbindingen (enkel nodig voor orchestrator) ────────────────────────
+# ── Agent connections (orchestrator only) ─────────────────────────────────────
 [[agents]]
-name              = "agent-knokke"
-host              = "10.0.0.2"            # IP van de Agent NUC (voor API calls)
+name              = "agent-01"
+host              = "10.0.0.2"            # IP of the agent node (API calls)
 port              = 8081
-api_key           = ""                    # optioneel
-ssh_host          = "10.0.0.2"            # IP voor rsync over SSH
+api_key           = ""                    # optional
+ssh_host          = "10.0.0.2"            # IP for rsync over SSH
 ssh_user          = "root"
 ssh_key_file      = "/root/.ssh/saltsoil_key"
-remote_mount_path = "/mnt/salt-and-soil"  # Mount pad op de Agent NUC
+remote_mount_path = "/mnt/salt-and-soil"  # Mount path on the agent node
 
-# Meerdere agents mogelijk:
+# Multiple agents are supported:
 # [[agents]]
-# name = "agent-twee"
+# name = "agent-02"
 # host = "10.0.0.3"
 # ...

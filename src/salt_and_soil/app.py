@@ -1,6 +1,6 @@
 """
-Centrale entry point van Salt & Soil.
-Laadt config → bepaalt rol → start FastAPI app.
+Main entry point for Salt & Soil.
+Loads config → determines role → starts FastAPI app.
 """
 from __future__ import annotations
 
@@ -15,8 +15,8 @@ from .shared.paths import ensure_dir
 
 def build_fastapi_app(config_path: str | None = None):
     """
-    Bouwt en geeft de FastAPI applicatie terug.
-    Kan gebruikt worden door uvicorn of door de test suite.
+    Builds and returns the FastAPI application.
+    Can be used by uvicorn or by the test suite.
     """
     cfg = load_config(config_path)
     _setup_logging(cfg)

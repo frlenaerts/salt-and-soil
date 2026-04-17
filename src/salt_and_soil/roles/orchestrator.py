@@ -1,6 +1,6 @@
 """
-OrchestratorRuntime beheert de volledige levenscyclus:
-  mount → scan (lokaal + agent) → compare → ready → sync → unmount
+OrchestratorRuntime manages the full sync lifecycle:
+  mount → scan (local + agent) → compare → ready → sync → unmount
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ class OrchestratorRuntime:
         self._mount_info: dict | None = None
         self._error: str = ""
 
-        # NFS voor de lokale NAS
+        # NFS mount for the local NAS
         self.nfs = NFSMount(
             host        = cfg.mount.remote_host,
             share       = cfg.mount.remote_share,
@@ -50,7 +50,7 @@ class OrchestratorRuntime:
             snapshot_dir = cfg.state.snapshot_dir,
         )
 
-        # Agent clients (één per geconfigureerde agent)
+        # Agent clients (one per configured agent)
         self.agents: list[AgentAPIClient] = [
             AgentAPIClient(
                 base_url = f"http://{a.host}:{a.port}",
@@ -94,8 +94,8 @@ class OrchestratorRuntime:
     async def run_scan(self):
         self.status = AppStatus.MOUNTING
         try:
-            # 1. Mount lokale NAS
-            self._info(f"Lokale NAS mounten: {self.nfs.host}:{self.nfs.share}...")
+            # 1. Mount local NAS
+            self._info(f"Mounting local NAS: {self.nfs.host}:{self.nfs.share}...")
             info = await self.nfs.mount()
             self._mount_info = {
                 "source":      info.source,
@@ -106,22 +106,22 @@ class OrchestratorRuntime:
                 "free":        human_size(info.free_bytes),
             }
             assert_mount_ok(info)
-            self._info(f"✓ Gemount — {human_size(info.total_bytes)} totaal, {human_size(info.free_bytes)} vrij")
+            self._info(f"✓ Mounted — {human_size(info.total_bytes)} total, {human_size(info.free_bytes)} free")
 
-            # Safety check: is de mount niet leeg?
+            # Safety check: mount path should not be empty
             if is_path_empty(self.cfg.mount.local_mount_path):
-                raise MountCheckError("Mount pad is leeg — NFS share mogelijk niet correct")
+                raise MountCheckError("Mount path is empty — NFS share may not be configured correctly")
 
-            # 2. Mount agent NAS(sen)
+            # 2. Mount agent NAS(es)
             for i, agent in enumerate(self.agents):
                 agent_cfg = self.cfg.agents[i]
-                self._info(f"Agent '{agent_cfg.name}' mounten via {agent_cfg.host}...")
+                self._info(f"Mounting agent '{agent_cfg.name}' via {agent_cfg.host}...")
                 resp = await agent.mount()
                 if not resp.ok:
-                    raise RuntimeError(f"Agent mount mislukt: {resp.error}")
-                self._info(f"✓ Agent '{agent_cfg.name}' gemount")
+                    raise RuntimeError(f"Agent mount failed: {resp.error}")
+                self._info(f"✓ Agent '{agent_cfg.name}' mounted")
 
-            # 3. Lokaal scannen
+            # 3. Scan local
             self.status = AppStatus.SCANNING
             self._info(f"Lokaal scannen: {', '.join(self.cfg.sync.sync_roots)}...")
             scanner = DirScanner(
@@ -135,14 +135,14 @@ class OrchestratorRuntime:
                 self.repo.save_snapshot(snap)
                 self._info(f"  /{snap.sync_root}: {snap.entry_count} mappen, {human_size(snap.total_size)}")
 
-            # 4. Agent(en) scannen
+            # 4. Scan agent(s)
             remote_snaps: dict[str, ScanSnapshot] = {}
             for i, agent in enumerate(self.agents):
                 agent_cfg = self.cfg.agents[i]
                 for root in self.cfg.sync.sync_roots:
-                    self._info(f"Agent '{agent_cfg.name}' scannen: /{root}...")
+                    self._info(f"Scanning agent '{agent_cfg.name}': /{root}...")
                     resp = await agent.list_dirs(root)
-                    # Bouw een nep-snapshot van de agent-response
+                    # Build a snapshot from the agent response
                     from ..scanner.models import ScanEntry
                     entries = [
                         ScanEntry(
@@ -165,8 +165,8 @@ class OrchestratorRuntime:
                     remote_snaps[root] = remote_snap
                     self._info(f"  /{root}: {remote_snap.entry_count} mappen, {human_size(remote_snap.total_size)}")
 
-            # 5. Vergelijken
-            self._info("Vergelijken lokaal ↔ remote...")
+            # 5. Compare
+            self._info("Comparing local ↔ remote...")
             all_diffs = []
             for root in self.cfg.sync.sync_roots:
                 diffs = compare(local_snaps[root], remote_snaps.get(root))
@@ -175,11 +175,11 @@ class OrchestratorRuntime:
                 needs   = sum(1 for d in diffs if d.diff_status.value == "needs_sync")
                 only_l  = sum(1 for d in diffs if d.diff_status.value == "local_only")
                 only_r  = sum(1 for d in diffs if d.diff_status.value == "remote_only")
-                self._info(f"  /{root}: {in_sync} in sync, {needs} verschil, {only_l} enkel hier, {only_r} enkel remote")
+                self._info(f"  /{root}: {in_sync} in sync, {needs} different, {only_l} local only, {only_r} remote only")
 
             self._diffs = all_diffs
 
-            # 6. State opslaan
+            # 6. Persist state
             state = self.repo.load_state(self.cfg.app.node_name, self.cfg.app.role.value)
             state.last_scan_id = next(iter(local_snaps.values())).snapshot_id if local_snaps else ""
             state.last_scan_at = utc_now_iso()
@@ -187,7 +187,7 @@ class OrchestratorRuntime:
             self.repo.save_state(state)
 
             self.status = AppStatus.READY
-            self._info(f"✓ Scan klaar — {len(all_diffs)} mappen gevonden")
+            self._info(f"✓ Scan complete — {len(all_diffs)} folders found")
 
         except Exception as e:
             self._error  = str(e)
@@ -196,7 +196,7 @@ class OrchestratorRuntime:
 
     async def run_sync(self, actions: list[ActionItem]):
         try:
-            # Update planned actions op basis van gebruikerskeuzes
+            # Update planned actions based on user selections
             action_map = {(a.sync_root, a.folder): a.action for a in actions}
             for diff in self._diffs:
                 key = (diff.sync_root, diff.name)
@@ -205,13 +205,13 @@ class OrchestratorRuntime:
 
             jobs = build_jobs(self._diffs)
             to_do = [j for j in jobs if j.action != SyncAction.SKIP]
-            self._info(f"Start sync — {len(to_do)} jobs...")
+            self._info(f"Starting sync — {len(to_do)} jobs...")
 
             if not self.cfg.agents:
-                raise RuntimeError("Geen agents geconfigureerd")
+                raise RuntimeError("No agents configured")
             agent_cfg = self.cfg.agents[0]
             if len(self.cfg.agents) > 1:
-                log.warning("Meerdere agents geconfigureerd maar sync gebruikt enkel '%s'", agent_cfg.name)
+                log.warning("Multiple agents configured but sync only uses '%s'", agent_cfg.name)
 
             executor = SyncExecutor(
                 local_mount  = self.cfg.mount.local_mount_path,
@@ -227,11 +227,11 @@ class OrchestratorRuntime:
                 async for line in executor.execute(job):
                     self._log.append(f"   {line}")
 
-            self._info("Unmounten...")
+            self._info("Unmounting...")
             await self.nfs.unmount()
             for i, agent in enumerate(self.agents):
                 await agent.unmount()
-                self._info(f"Agent '{self.cfg.agents[i].name}' ontkoppeld")
+                self._info(f"Agent '{self.cfg.agents[i].name}' unmounted")
 
             state = self.repo.load_state(self.cfg.app.node_name, self.cfg.app.role.value)
             state.last_sync_at = utc_now_iso()
@@ -239,7 +239,7 @@ class OrchestratorRuntime:
             self.repo.save_state(state)
 
             self.status = AppStatus.DONE
-            self._info("✓ Sync klaar — NAS'sen slapen")
+            self._info("✓ Sync complete — NAS devices are idle")
 
         except Exception as e:
             self._error = str(e)

@@ -1,5 +1,5 @@
 """
-Data Transfer Objects — plain Python dataclasses, geen pydantic vereist.
+Data Transfer Objects — plain Python dataclasses, no pydantic required.
 """
 from __future__ import annotations
 from dataclasses import dataclass

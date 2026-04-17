@@ -1,6 +1,6 @@
 """
-Laadt een TOML config bestand en geeft een Config object terug.
-Python 3.11+ heeft tomllib ingebouwd. Voor 3.10 gebruiken we tomli.
+Loads a TOML config file and returns a Config object.
+Python 3.11+ has tomllib built-in. For 3.10 we fall back to tomli.
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ except ImportError:
     try:
         import tomli as tomllib  # type: ignore
     except ImportError:
-        raise ImportError("Install 'tomli' voor Python < 3.11:  pip install tomli")
+        raise ImportError("Install 'tomli' for Python < 3.11:  pip install tomli")
 
 from .models import (
     AppConfig, ServerConfig,
@@ -27,7 +27,7 @@ DEFAULT_CONFIG_PATH = os.getenv("SALTSOIL_CONFIG", "./config/config.toml")
 def load(path: str | Path | None = None) -> Config:
     p = Path(path or DEFAULT_CONFIG_PATH)
     if not p.exists():
-        raise FileNotFoundError(f"Config niet gevonden: {p.resolve()}")
+        raise FileNotFoundError(f"Config file not found: {p.resolve()}")
 
     with open(p, "rb") as f:
         raw = tomllib.load(f)
@@ -38,7 +38,7 @@ def load(path: str | Path | None = None) -> Config:
         _role = NodeRole(_role_raw)
     except ValueError:
         valid = [r.value for r in NodeRole]
-        raise ValueError(f"Ongeldige app.role '{_role_raw}'. Geldige waarden: {valid}")
+        raise ValueError(f"Invalid app.role '{_role_raw}'. Valid values: {valid}")
     app = AppConfig(
         role       = _role,
         node_name  = app_raw.get("node_name", "node-01"),
@@ -69,10 +69,10 @@ def load(path: str | Path | None = None) -> Config:
         _mode = CompareMode(_mode_raw)
     except ValueError:
         valid = [m.value for m in CompareMode]
-        raise ValueError(f"Ongeldige sync.compare_mode '{_mode_raw}'. Geldige waarden: {valid}")
+        raise ValueError(f"Invalid sync.compare_mode '{_mode_raw}'. Valid values: {valid}")
     _sync_roots = sync_raw.get("sync_roots", ["videos"])
     if not _sync_roots:
-        raise ValueError("sync.sync_roots mag niet leeg zijn")
+        raise ValueError("sync.sync_roots must not be empty")
     sync = SyncConfig(
         scan_on_startup  = sync_raw.get("scan_on_startup", False),
         auto_resume      = sync_raw.get("auto_resume", True),

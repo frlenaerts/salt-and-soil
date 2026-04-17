@@ -1,6 +1,6 @@
 """
-Scant een lokale directory en geeft een ScanSnapshot terug.
-Werkt recursief maar slaat enkel top-level entries op voor v1.
+Scans a local directory and returns a ScanSnapshot.
+Works recursively but only stores top-level entries for v1.
 """
 from __future__ import annotations
 
@@ -37,13 +37,13 @@ class DirScanner:
         )
 
         if not root_path.exists():
-            snap.error = f"Pad bestaat niet: {root_path}"
+            snap.error = f"Path does not exist: {root_path}"
             return snap
 
         entries = []
         try:
             for entry in sorted(root_path.iterdir(), key=lambda e: e.name):
-                # is_dir() volgt symlinks by default; expliciete check via lstat
+                # is_dir() follows symlinks by default; explicit check via lstat
                 if entry.is_symlink() or not entry.is_dir():
                     continue
                 size  = await self._dir_size(entry)
