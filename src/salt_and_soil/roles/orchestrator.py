@@ -211,7 +211,7 @@ class OrchestratorRuntime:
             if _did_mount:
                 try:
                     await self.nfs.unmount()
-                    self._info("[{self._node}] Unmounted")
+                    self._info(f"[{self._node}] Unmounted")
                 except Exception as e:
                     self._err(f"[{self._node}] Unmount failed: {e}")
                 for i, agent in enumerate(self.agents):
@@ -227,7 +227,7 @@ class OrchestratorRuntime:
             self._info(f"[{self._node}] Mounting {self.nfs.host}:{self.nfs.share}...")
             info = await self.nfs.mount()
             assert_mount_ok(info)
-            self._info("[{self._node}] Mounted")
+            self._info(f"[{self._node}] Mounted")
             for i, agent in enumerate(self.agents):
                 agent_cfg = self.cfg.agents[i]
                 resp = await agent.mount()
@@ -268,7 +268,7 @@ class OrchestratorRuntime:
                     self._log.append(f"{self._ts()} - [{self._node}]    {line}")
 
             await self.nfs.unmount()
-            self._info("[{self._node}] Unmounted")
+            self._info(f"[{self._node}] Unmounted")
             for i, agent in enumerate(self.agents):
                 await agent.unmount()
                 self._info(f"[{self.cfg.agents[i].name}] Unmounted")
