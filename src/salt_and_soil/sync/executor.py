@@ -58,7 +58,7 @@ class SyncExecutor:
             f"{self.remote_mount}/{job.sync_root}/{job.folder}/"
         )
         cmd = [
-            "rsync", "-avz", "--progress", "--partial",
+            "rsync", "-avz", "--partial",
             "-e", self._ssh_opts,
             src, dst,
         ]
