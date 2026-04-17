@@ -64,11 +64,6 @@ def create_app(cfg: Config, runtime) -> FastAPI:
             yield
         finally:
             _running = False
-            log.info("Shutdown: unmounting NAS...")
-            try:
-                await runtime.do_unmount()
-            except Exception as exc:
-                log.warning("Unmount on shutdown failed: %s", exc)
 
     app = FastAPI(title="Salt & Soil", lifespan=lifespan)
 
@@ -93,11 +88,13 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
             "request":    request,
             "node_name":  cfg.app.node_name,
             "sync_roots": cfg.sync.sync_roots,
+            "nas_source": f"{cfg.mount.remote_host}:{cfg.mount.remote_share}",
+            "local_path": cfg.mount.local_mount_path,
         })
 
     @app.post("/api/start")
     async def start(background_tasks: BackgroundTasks):
-        if rt.status not in (AppStatus.IDLE, AppStatus.DONE, AppStatus.ERROR):
+        if rt.status not in (AppStatus.IDLE, AppStatus.READY, AppStatus.DONE, AppStatus.ERROR):
             raise HTTPException(400, "Busy")
         rt.reset()
         background_tasks.add_task(rt.run_scan)

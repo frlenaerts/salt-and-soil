@@ -34,6 +34,7 @@ class OrchestratorRuntime:
         self._diffs: list[FolderDiff] = []
         self._mount_info: dict | None = None
         self._error: str = ""
+        self._last_scan_at: str | None = None
 
         # NFS mount for the local NAS
         self.nfs = NFSMount(
@@ -82,21 +83,24 @@ class OrchestratorRuntime:
 
     def snapshot_for_ui(self) -> dict[str, Any]:
         return {
-            "status": self.status.value,
-            "log":    list(self._log),
-            "diffs":  [_diff_to_dict(d) for d in self._diffs],
-            "mount":  self._mount_info,
-            "error":  self._error,
+            "status":       self.status.value,
+            "log":          list(self._log),
+            "diffs":        [_diff_to_dict(d) for d in self._diffs],
+            "mount":        self._mount_info,
+            "error":        self._error,
+            "last_scan_at": self._last_scan_at,
         }
 
     # ── Main flow ─────────────────────────────────────────────────────────────
 
     async def run_scan(self):
         self.status = AppStatus.MOUNTING
+        _did_mount  = False
         try:
             # 1. Mount local NAS
             self._info(f"Mounting local NAS: {self.nfs.host}:{self.nfs.share}...")
             info = await self.nfs.mount()
+            _did_mount = True
             self._mount_info = {
                 "source":      info.source,
                 "local_path":  info.local_path,
@@ -108,7 +112,6 @@ class OrchestratorRuntime:
             assert_mount_ok(info)
             self._info(f"✓ Mounted — {human_size(info.total_bytes)} total, {human_size(info.free_bytes)} free")
 
-            # Safety check: mount path should not be empty
             if is_path_empty(self.cfg.mount.local_mount_path):
                 raise MountCheckError("Mount path is empty — NFS share may not be configured correctly")
 
@@ -133,7 +136,7 @@ class OrchestratorRuntime:
             for snap in await scanner.scan_all():
                 local_snaps[snap.sync_root] = snap
                 self.repo.save_snapshot(snap)
-                self._info(f"  /{snap.sync_root}: {snap.entry_count} mappen, {human_size(snap.total_size)}")
+                self._info(f"  /{snap.sync_root}: {snap.entry_count} folders, {human_size(snap.total_size)}")
 
             # 4. Scan agent(s)
             remote_snaps: dict[str, ScanSnapshot] = {}
@@ -142,7 +145,6 @@ class OrchestratorRuntime:
                 for root in self.cfg.sync.sync_roots:
                     self._info(f"Scanning agent '{agent_cfg.name}': /{root}...")
                     resp = await agent.list_dirs(root)
-                    # Build a snapshot from the agent response
                     from ..scanner.models import ScanEntry
                     entries = [
                         ScanEntry(
@@ -163,7 +165,7 @@ class OrchestratorRuntime:
                         total_size  = sum(d.size_bytes for d in resp.dirs),
                     )
                     remote_snaps[root] = remote_snap
-                    self._info(f"  /{root}: {remote_snap.entry_count} mappen, {human_size(remote_snap.total_size)}")
+                    self._info(f"  /{root}: {remote_snap.entry_count} folders, {human_size(remote_snap.total_size)}")
 
             # 5. Compare
             self._info("Comparing local ↔ remote...")
@@ -186,6 +188,7 @@ class OrchestratorRuntime:
             state.diffs        = all_diffs
             self.repo.save_state(state)
 
+            self._last_scan_at = state.last_scan_at
             self.status = AppStatus.READY
             self._info(f"✓ Scan complete — {len(all_diffs)} folders found")
 
@@ -194,8 +197,34 @@ class OrchestratorRuntime:
             self._err(str(e))
             self.status = AppStatus.ERROR
 
+        finally:
+            if _did_mount:
+                self._info("Unmounting...")
+                try:
+                    await self.nfs.unmount()
+                except Exception as e:
+                    self._err(f"Local unmount failed: {e}")
+                for i, agent in enumerate(self.agents):
+                    try:
+                        await agent.unmount()
+                    except Exception:
+                        pass
+                self._info("✓ NFS unmounted")
+
     async def run_sync(self, actions: list[ActionItem]):
         try:
+            # Re-mount (scan already unmounted after completing)
+            self._info(f"Mounting for sync: {self.nfs.host}:{self.nfs.share}...")
+            info = await self.nfs.mount()
+            assert_mount_ok(info)
+            self._info("✓ Mounted")
+            for i, agent in enumerate(self.agents):
+                agent_cfg = self.cfg.agents[i]
+                resp = await agent.mount()
+                if not resp.ok:
+                    raise RuntimeError(f"Agent mount failed: {resp.error}")
+                self._info(f"✓ Agent '{agent_cfg.name}' mounted")
+
             # Update planned actions based on user selections
             action_map = {(a.sync_root, a.folder): a.action for a in actions}
             for diff in self._diffs:
