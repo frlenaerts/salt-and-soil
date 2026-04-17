@@ -99,6 +99,7 @@ def load(path: str | Path | None = None) -> Config:
             ssh_user         = a.get("ssh_user", "root"),
             ssh_key_file     = a.get("ssh_key_file", "/root/.ssh/saltsoil_key"),
             remote_mount_path= a.get("remote_mount_path", "/mnt/salt-and-soil/source"),
+            remote_share     = a.get("remote_share", ""),
         ))
 
     return Config(
