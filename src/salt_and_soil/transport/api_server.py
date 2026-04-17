@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, BackgroundTasks, Request, HTTPException
@@ -24,10 +25,18 @@ from .dtos import ExecuteRequest, MountResponse, StatusResponse, ListDirsRespons
 log = logging.getLogger("salt-and-soil")
 
 _TMPL_DIR = Path(__file__).parent.parent / "templates"
+_running  = True   # set to False in lifespan shutdown so SSE generators exit
 
 
 def create_app(cfg: Config, runtime) -> FastAPI:
-    app = FastAPI(title="Salt & Soil")
+    @asynccontextmanager
+    async def lifespan(app):
+        global _running
+        _running = True
+        yield
+        _running = False   # SSE generators exit within 0.4 s
+
+    app = FastAPI(title="Salt & Soil", lifespan=lifespan)
 
     if cfg.app.role == NodeRole.ORCHESTRATOR:
         _register_orchestrator_routes(app, cfg, runtime)
@@ -69,7 +78,7 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
         async def gen():
             sent_log    = 0
             sent_status = None
-            while True:
+            while _running:
                 snap = rt.snapshot_for_ui()
                 cur_len = len(snap["log"])
                 if snap["status"] != sent_status or cur_len != sent_log:
