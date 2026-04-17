@@ -84,12 +84,15 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
 
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request):
+        agent     = cfg.agents[0] if cfg.agents else None
+        agent_str = f"{agent.host}:{agent.remote_mount_path}" if agent else ""
         return templates.TemplateResponse("index.html", {
             "request":    request,
             "node_name":  cfg.app.node_name,
             "sync_roots": cfg.sync.sync_roots,
             "nas_source": f"{cfg.mount.remote_host}:{cfg.mount.remote_share}",
             "local_path": cfg.mount.local_mount_path,
+            "agent_str":  agent_str,
         })
 
     @app.post("/api/start")
