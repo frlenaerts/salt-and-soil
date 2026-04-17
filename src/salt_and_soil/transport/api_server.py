@@ -45,14 +45,14 @@ def create_app(cfg: Config, runtime) -> FastAPI:
         def _on_signal():
             global _running
             _running = False
-            # Remove our handlers so the next signal reaches uvicorn/Python default
             try:
                 loop.remove_signal_handler(signal.SIGINT)
                 loop.remove_signal_handler(signal.SIGTERM)
             except Exception:
                 pass
-            # Re-send SIGINT so uvicorn's shutdown sequence starts
-            os.kill(os.getpid(), signal.SIGINT)
+            # Schedule the re-send so it fires after this handler returns,
+            # avoiding KeyboardInterrupt being raised inside the signal callback.
+            loop.call_soon(os.kill, os.getpid(), signal.SIGINT)
 
         try:
             loop.add_signal_handler(signal.SIGINT,  _on_signal)
