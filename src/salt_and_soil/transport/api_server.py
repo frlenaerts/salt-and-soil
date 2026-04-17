@@ -40,9 +40,19 @@ def create_app(cfg: Config, runtime) -> FastAPI:
         # before uvicorn starts waiting for connections.
         loop = asyncio.get_running_loop()
 
+        import os
+
         def _on_signal():
             global _running
             _running = False
+            # Remove our handlers so the next signal reaches uvicorn/Python default
+            try:
+                loop.remove_signal_handler(signal.SIGINT)
+                loop.remove_signal_handler(signal.SIGTERM)
+            except Exception:
+                pass
+            # Re-send SIGINT so uvicorn's shutdown sequence starts
+            os.kill(os.getpid(), signal.SIGINT)
 
         try:
             loop.add_signal_handler(signal.SIGINT,  _on_signal)
