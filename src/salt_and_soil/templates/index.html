@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="nl">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -130,6 +130,24 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
 .mount-bar strong { font-weight: 600; }
 .mount-bar .sep { color: var(--teal-mid); }
 
+/* ── Tabs ── */
+.tab-bar {
+  display: flex; gap: 2px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+.tab-btn {
+  font-family: var(--sans); font-size: 13px; font-weight: 500;
+  padding: 9px 18px; border: none; background: transparent;
+  color: var(--text-dim); cursor: pointer;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  transition: color .15s, border-color .15s;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--teal-dark); border-bottom-color: var(--teal); }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
 /* ── Table ── */
 .folder-table { width: 100%; border-collapse: collapse; }
 .folder-table thead th {
@@ -149,7 +167,11 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
   text-transform: uppercase; letter-spacing: .7px;
   padding: 7px 16px;
   border-bottom: 1px solid var(--teal-mid);
+  cursor: pointer;
+  user-select: none;
 }
+.root-row:hover td { background: #d4f0f0 !important; }
+.root-icon { margin-right: 6px; font-style: normal; font-size: 10px; }
 
 .fname { font-family: var(--mono); font-size: 13px; font-weight: 500; }
 .fsize { font-family: var(--mono); font-size: 12px; color: var(--text-mid); }
@@ -197,7 +219,7 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
 /* Log */
 .log-box {
   font-family: var(--mono); font-size: 12px; line-height: 1.85;
-  padding: 14px 16px; max-height: 230px; overflow-y: auto;
+  padding: 14px 16px; max-height: 420px; overflow-y: auto;
   background: var(--bg); border-radius: 0 0 var(--r) var(--r);
   color: var(--text-mid);
 }
@@ -249,44 +271,54 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
   <div id="mount-bar-area"></div>
 
   <div class="action-row">
-    <button class="btn btn-primary" id="btn-scan" onclick="startScan()">▶ &nbsp;Scan starten</button>
+    <button class="btn btn-primary" id="btn-scan" onclick="startScan()">▶ &nbsp;Start Scan</button>
     <button class="btn btn-outline" onclick="doReset()">↺ &nbsp;Reset</button>
   </div>
 
-  <div id="folders-area"></div>
+  <div class="tab-bar">
+    <button class="tab-btn active" id="tab-btn-folders" onclick="showTab('folders')">Folders</button>
+    <button class="tab-btn" id="tab-btn-log" onclick="showTab('log')">Log</button>
+  </div>
 
-  <div class="card">
-    <div class="card-head">
-      <span class="card-title">Log</span>
-      <button class="btn btn-outline" style="padding:4px 10px;font-size:11px" onclick="document.getElementById('log-box').innerHTML=''">Leeg</button>
+  <div class="tab-panel active" id="tab-folders">
+    <div id="folders-area"></div>
+  </div>
+
+  <div class="tab-panel" id="tab-log">
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">Log</span>
+        <button class="btn btn-outline" style="padding:4px 10px;font-size:11px" onclick="document.getElementById('log-box').innerHTML=''">Clear</button>
+      </div>
+      <div class="log-box" id="log-box"><span style="color:var(--text-dim)">Ready to start.</span></div>
     </div>
-    <div class="log-box" id="log-box"><span style="color:var(--text-dim)">Klaar om te starten.</span></div>
   </div>
 </main>
 
 <script>
 // ── State ─────────────────────────────────────────────────────────────────────
-let status  = 'idle';
-let diffs   = [];
-let actions = {};   // key = "root|||name" → action string
-let es      = null;
+let status    = 'idle';
+let diffs     = [];
+let actions   = {};   // key = "root|||name" → action string
+let collapsed = {};   // key = sync_root → bool
+let es        = null;
 
 const LABELS = {
-  idle:'Idle', mounting:'Mounten…', scanning:'Scannen…',
-  ready:'Klaar om te syncen', syncing:'Bezig…',
-  done:'Sync klaar', error:'Fout'
+  idle:'Idle', mounting:'Mounting…', scanning:'Scanning…',
+  ready:'Ready to sync', syncing:'Busy…',
+  done:'Sync complete', error:'Error'
 };
 
 const DIFF_LABEL = {
-  in_sync:'In sync', needs_sync:'Verschil',
-  local_only:'Enkel lokaal', remote_only:'Enkel remote', unknown:'Onbekend'
+  in_sync:'In sync', needs_sync:'Different',
+  local_only:'Local only', remote_only:'Remote only', unknown:'Unknown'
 };
 
 const ACTION_OPTS = {
-  in_sync:     [['skip','— overslaan'],['sync','↑ Re-sync'],['delete_remote','✕ Verwijder remote']],
-  needs_sync:  [['sync','↑ Sync'],['skip','— overslaan'],['delete_remote','✕ Verwijder remote']],
-  local_only:  [['sync','↑ Sync naar agent'],['skip','— overslaan']],
-  remote_only: [['skip','— overslaan'],['delete_remote','✕ Verwijder remote']],
+  in_sync:     [['skip','— skip'],['sync','↑ Re-sync'],['delete_remote','✕ Delete remote']],
+  needs_sync:  [['sync','↑ Sync'],['skip','— skip'],['delete_remote','✕ Delete remote']],
+  local_only:  [['sync','↑ Sync to agent'],['skip','— skip']],
+  remote_only: [['skip','— skip'],['delete_remote','✕ Delete remote']],
 };
 
 const DEFAULT_ACTION = {
@@ -294,6 +326,14 @@ const DEFAULT_ACTION = {
 };
 
 function key(d) { return d.sync_root + '|||' + d.name; }
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+function showTab(name) {
+  ['folders','log'].forEach(t => {
+    document.getElementById('tab-' + t).classList.toggle('active', t === name);
+    document.getElementById('tab-btn-' + t).classList.toggle('active', t === name);
+  });
+}
 
 // ── SSE ───────────────────────────────────────────────────────────────────────
 function connectSSE() {
@@ -321,7 +361,7 @@ function setStatus(s) {
   const btn = document.getElementById('btn-scan');
   const busy = ['mounting','scanning','syncing'].includes(s);
   btn.disabled = busy;
-  btn.innerHTML = busy ? '⏳ &nbsp;Bezig…' : '▶ &nbsp;Scan starten';
+  btn.innerHTML = busy ? '⏳ &nbsp;Busy…' : '▶ &nbsp;Start Scan';
 }
 
 // ── Log ───────────────────────────────────────────────────────────────────────
@@ -343,12 +383,12 @@ function renderMountBar(m) {
       <span class="sep">→</span>
       <span>${m.local_path}</span>
       <span class="sep">·</span>
-      <span>${m.total} totaal</span>
+      <span>${m.total} total</span>
       <span class="sep">·</span>
-      <span>${m.free} vrij</span>
+      <span>${m.free} free</span>
       <span class="sep">·</span>
       <span style="color:${m.writable?'var(--teal-dark)':'var(--red)'}">
-        ${m.writable ? '✓ schrijfbaar' : '✗ read-only'}
+        ${m.writable ? '✓ writable' : '✗ read-only'}
       </span>
     </div>`;
 }
@@ -359,7 +399,7 @@ function startScan() {
   document.getElementById('mount-bar-area').innerHTML = '';
   document.getElementById('folders-area').innerHTML = '';
   document.getElementById('log-box').innerHTML = '';
-  diffs = []; actions = {};
+  diffs = []; actions = {}; collapsed = {};
   connectSSE();
   fetch('/api/start', {method:'POST'});
   setStatus('scanning');
@@ -368,7 +408,7 @@ function startScan() {
 function doReset() {
   closeSse();
   fetch('/api/reset', {method:'POST'}).then(() => {
-    diffs = []; actions = {};
+    diffs = []; actions = {}; collapsed = {};
     setStatus('idle');
     document.getElementById('banner-area').innerHTML = '';
     document.getElementById('mount-bar-area').innerHTML = '';
@@ -377,13 +417,21 @@ function doReset() {
   });
 }
 
+// ── Collapsible root rows ─────────────────────────────────────────────────────
+function toggleRoot(root) {
+  collapsed[root] = !collapsed[root];
+  const icon = document.getElementById('root-icon-' + CSS.escape(root));
+  if (icon) icon.textContent = collapsed[root] ? '▶' : '▼';
+  document.querySelectorAll(`[data-root="${root}"]`).forEach(tr => {
+    tr.style.display = collapsed[root] ? 'none' : '';
+  });
+}
+
 // ── Folder table ──────────────────────────────────────────────────────────────
 function renderFolders() {
   diffs.forEach(d => { if (!(key(d) in actions)) actions[key(d)] = DEFAULT_ACTION[d.diff_status] || 'skip'; });
 
   const area = document.getElementById('folders-area');
-
-  // Group by sync_root
   const grouped = {};
   diffs.forEach(d => { (grouped[d.sync_root] = grouped[d.sync_root] || []).push(d); });
   const roots = Object.keys(grouped);
@@ -392,7 +440,7 @@ function renderFolders() {
     <div class="card" style="margin-bottom:12px;overflow:hidden">
       <table class="folder-table">
         <thead><tr>
-          <th>Map</th><th>Lokaal</th><th>Remote</th><th>Status</th><th>Actie</th>
+          <th>Folder</th><th>Local</th><th>Remote</th><th>Status</th><th>Action</th>
         </tr></thead>
         <tbody id="diff-tbody"></tbody>
       </table>
@@ -401,10 +449,13 @@ function renderFolders() {
 
   const tbody = document.getElementById('diff-tbody');
   roots.forEach(root => {
-    if (roots.length > 1) {
-      const tr = document.createElement('tr'); tr.className = 'root-row';
-      tr.innerHTML = `<td colspan="5">/${root}</td>`; tbody.appendChild(tr);
-    }
+    const isCollapsed = !!collapsed[root];
+    const tr = document.createElement('tr');
+    tr.className = 'root-row';
+    tr.onclick = () => toggleRoot(root);
+    tr.innerHTML = `<td colspan="5"><span class="root-icon" id="root-icon-${root}">${isCollapsed ? '▶' : '▼'}</span>/${root}</td>`;
+    tbody.appendChild(tr);
+
     grouped[root].forEach(d => {
       const k    = key(d);
       const diff = d.local_size > 0 && d.remote_size > 0 &&
@@ -412,26 +463,27 @@ function renderFolders() {
       const opts = (ACTION_OPTS[d.diff_status] || []).map(([v,l]) =>
         `<option value="${v}" ${actions[k]===v?'selected':''}>${l}</option>`).join('');
       const sc = actions[k]==='sync' ? 'sel-sync' : actions[k]==='delete_remote' ? 'sel-delete' : 'sel-skip';
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
+      const dataRow = document.createElement('tr');
+      dataRow.setAttribute('data-root', root);
+      if (isCollapsed) dataRow.style.display = 'none';
+      dataRow.innerHTML = `
         <td class="fname">${d.name}</td>
         <td class="fsize ${diff?'fsize-diff':''}">${d.local_size > 0 ? d.local_size_hr : '—'}</td>
         <td class="fsize ${diff?'fsize-diff':''}">${d.remote_size > 0 ? d.remote_size_hr : '—'}</td>
         <td><span class="badge badge-${d.diff_status}">${DIFF_LABEL[d.diff_status]||d.diff_status}</span></td>
         <td><select class="action-select ${sc}"
           onchange="setAction('${k}',this)">${opts}</select></td>`;
-      tbody.appendChild(tr);
+      tbody.appendChild(dataRow);
     });
   });
 
-  // Execute footer
   const footer = document.createElement('div');
   footer.className = 'exec-footer'; footer.id = 'exec-footer';
   footer.innerHTML = `
     <div class="exec-stats" id="exec-stats"></div>
     <button class="btn btn-execute" id="btn-execute"
       onclick="doExecute()" ${status!=='ready'?'disabled':''}>
-      ↑ &nbsp;Uitvoeren
+      ↑ &nbsp;Execute
     </button>`;
   area.appendChild(footer);
   updateStats();
@@ -451,9 +503,9 @@ function updateStats() {
   const d = vals.filter(a=>a==='delete_remote').length;
   const k = vals.filter(a=>a==='skip').length;
   el.innerHTML = `
-    <div class="exec-stat"><span class="n n-sync">${s}</span> te syncen</div>
-    <div class="exec-stat"><span class="n n-del">${d}</span> te verwijderen</div>
-    <div class="exec-stat"><span class="n n-skip">${k}</span> overgeslagen</div>`;
+    <div class="exec-stat"><span class="n n-sync">${s}</span> to sync</div>
+    <div class="exec-stat"><span class="n n-del">${d}</span> to delete</div>
+    <div class="exec-stat"><span class="n n-skip">${k}</span> skipped</div>`;
 }
 
 // ── Execute ───────────────────────────────────────────────────────────────────
@@ -471,7 +523,7 @@ function doExecute() {
 }
 
 function onDone() {
-  showBanner('done', '✓ Sync klaar — NAS\'sen slapen 🛌');
+  showBanner('done', '✓ Sync complete — NAS devices are sleeping 🛌');
   setStatus('done');
 }
 
