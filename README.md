@@ -65,6 +65,51 @@ Scheduling and automation may be added later.
 
 ---
 
+## Deployment — Proxmox LXC Container
+
+Salt & Soil is designed to run on a Proxmox LXC container.
+Because the application manages its own NFS mount/unmount lifecycle via subprocesses, the container requires elevated privileges.
+
+### Recommended container settings
+
+| Parameter | Value | Reason |
+|-----------|-------|--------|
+| **Template** | Debian 12 (bookworm) | |
+| **Disk** | 8 GB | OS ~2 GB + Python/venv ~500 MB + data, logs, snapshots |
+| **Memory** | 512 MB (max 1024 MB) | FastAPI idle ~80 MB; headroom for rsync and scan spikes |
+| **CPU cores** | 1 (2 for comfort) | rsync is I/O-bound, not CPU-bound |
+| **Unprivileged** | **No — use privileged** | See note below |
+| **Nesting** | No | Only required for Docker-in-LXC scenarios |
+
+### Why privileged?
+
+The application executes `mount` and `umount` as subprocesses.
+Unprivileged LXC containers lack `CAP_SYS_ADMIN` and cannot perform NFS mounts — the call fails with `permission denied`.
+
+Mounting the NFS share on the Proxmox host and bind-mounting it into an unprivileged container is technically possible, but breaks the on-demand mount lifecycle that is central to how Salt & Soil works.
+
+For a homelab orchestrator, a privileged container is the pragmatic and correct choice.
+
+### First-run test (orchestrator)
+
+Once the container is running and the config is in place:
+
+```bash
+# 1. Bootstrap (installs system packages, creates venv, generates SSH key)
+bash scripts/bootstrap.sh --role orchestrator
+
+# 2. Edit config
+nano config/config.toml
+
+# 3. Verify NFS mount + directory scan
+python -m salt_and_soil test-mount
+```
+
+`test-mount` mounts the NAS, scans all configured `sync_roots`, and opens a read-only web UI showing folder sizes.
+No agent is required for this step. Use the "Unmount & Stop" button to cleanly shut down.
+
+---
+
 ## Name origin
 
 Salt & Soil refers to the two environments the tool was originally designed for:
