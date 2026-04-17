@@ -77,7 +77,7 @@ class SyncExecutor:
 
     async def _delete_remote(self, job: SyncJob) -> AsyncIterator[str]:
         path = f"{self.remote_mount}/{job.sync_root}/{job.folder}"
-        yield f"rm -rf {path}"
+        yield f"Deleting on {self.remote_host}: {path}"
         proc = await asyncio.create_subprocess_exec(
             "ssh",
             "-i", self.ssh_key_file,
@@ -90,4 +90,4 @@ class SyncExecutor:
         await proc.wait()
         if proc.returncode != 0:
             raise RuntimeError("delete failed")
-        yield "Deleted ✓"
+        yield "Deleted"
