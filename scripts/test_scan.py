@@ -244,7 +244,7 @@ async def _do_scan(cfg, nfs: NFSMount, repo: StateRepository):
         ts._diffs    = diffs
         ts._progress = 100.0
         ts.status    = AppStatus.READY
-        ts.info(f"✓ Done — {len(diffs)} folders found.")
+        ts.info(f"Done — {len(diffs)} folders found.")
 
     except Exception as e:
         ts._error = str(e)

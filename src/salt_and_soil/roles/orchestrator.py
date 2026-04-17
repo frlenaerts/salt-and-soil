@@ -195,7 +195,7 @@ class OrchestratorRuntime:
 
             self._last_scan_at = state.last_scan_at
             self.status = AppStatus.READY
-            self._info(f"✓ Scan complete — {len(all_diffs)} folders found")
+            self._info(f"Scan complete — {len(all_diffs)} folders found")
 
         except Exception as e:
             self._error  = str(e)
@@ -273,7 +273,7 @@ class OrchestratorRuntime:
             self.repo.save_state(state)
 
             self.status = AppStatus.DONE
-            self._info("✓ Sync complete — NAS devices are idle")
+            self._info("Sync complete — NAS devices are idle")
 
         except Exception as e:
             self._error = str(e)
