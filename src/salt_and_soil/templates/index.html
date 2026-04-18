@@ -414,6 +414,7 @@ function setStatus(s) {
   btn.disabled = busy;
   btn.innerHTML = busy ? '⏳ &nbsp;Busy…' : '▶ &nbsp;Start Scan';
   document.getElementById('progress-wrap').classList.toggle('visible', ['mounting','scanning','syncing'].includes(s));
+  document.querySelectorAll('.action-select').forEach(el => { el.disabled = busy; });
 }
 
 // ── Log ───────────────────────────────────────────────────────────────────────
@@ -506,7 +507,7 @@ function renderFolders() {
         <td class="fsize ${diff?'fsize-diff':''}">${d.local_size > 0 ? d.local_size_hr : '—'}</td>
         <td class="fsize ${diff?'fsize-diff':''}">${d.remote_size > 0 ? d.remote_size_hr : '—'}</td>
         <td><span class="badge badge-${d.diff_status}">${DIFF_LABEL[d.diff_status]||d.diff_status}</span></td>
-        <td><select class="action-select ${sc}"
+        <td><select class="action-select ${sc}" ${['mounting','scanning','syncing'].includes(status)?'disabled':''}
           onchange="setAction('${k}',this)">${opts}</select></td>`;
       tbody.appendChild(dataRow);
     });
