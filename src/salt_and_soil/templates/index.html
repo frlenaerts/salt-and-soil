@@ -208,7 +208,7 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
   font-family: var(--sans); font-size: 12px; font-weight: 500;
   background: var(--bg); border: 1px solid var(--border-mid);
   color: var(--text); padding: 6px 10px; border-radius: 6px;
-  cursor: pointer; min-width: 148px; transition: border-color .15s;
+  cursor: pointer; min-width: 90px; transition: border-color .15s;
 }
 .action-select:focus { outline: none; border-color: var(--teal); box-shadow: 0 0 0 3px rgba(26,191,186,.12); }
 .sel-sync   { border-color: var(--teal);  background: var(--teal-light);  color: var(--teal-dark); }
@@ -330,6 +330,7 @@ let diffs     = [];
 let actions   = {};   // key = "root|||name" → action string
 let collapsed = {};   // key = sync_root → bool
 let es        = null;
+let syncInitiated = false;
 
 const LABELS = {
   idle:'Idle', mounting:'Mounting…', scanning:'Scanning…',
@@ -391,7 +392,7 @@ function setStatus(s) {
   const busy = ['mounting','scanning','syncing'].includes(s);
   btn.disabled = busy;
   btn.innerHTML = busy ? '⏳ &nbsp;Busy…' : '▶ &nbsp;Start Scan';
-  document.getElementById('progress-wrap').classList.toggle('visible', ['mounting','scanning'].includes(s));
+  document.getElementById('progress-wrap').classList.toggle('visible', ['mounting','scanning','syncing'].includes(s));
 }
 
 // ── Log ───────────────────────────────────────────────────────────────────────
@@ -531,11 +532,16 @@ function doExecute() {
   });
   setStatus('syncing');
   document.getElementById('btn-execute').disabled = true;
+  syncInitiated = true;
 }
 
 function onDone() {
   showBanner('done', '✓ Sync complete — NAS devices are sleeping 🛌');
   setStatus('done');
+  if (syncInitiated) {
+    syncInitiated = false;
+    setTimeout(() => startScan(), 1500);
+  }
 }
 
 function showBanner(type, msg) {
