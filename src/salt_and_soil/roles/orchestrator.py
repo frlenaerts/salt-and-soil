@@ -257,7 +257,11 @@ class OrchestratorRuntime:
             )
 
             for job in to_do:
-                icon = "↑" if job.action == SyncAction.SYNC else "✕"
+                icon = {
+                    SyncAction.SYNC:          "↑",
+                    SyncAction.PULL:          "↓",
+                    SyncAction.DELETE_REMOTE: "✕",
+                }.get(job.action, "?")
                 self._info(f"[{self._node}] {icon} {job.sync_root}/{job.folder}")
                 async for line in executor.execute(job):
                     self._log.append(f"{self._ts()} - [{self._node}]    {line}")

@@ -50,7 +50,10 @@ class SyncExecutor:
         job.started_at = utc_now_iso()
         try:
             if job.action == SyncAction.SYNC:
-                async for line in self._rsync(job):
+                async for line in self._rsync(job, direction="push"):
+                    yield line
+            elif job.action == SyncAction.PULL:
+                async for line in self._rsync(job, direction="pull"):
                     yield line
             elif job.action == SyncAction.DELETE_REMOTE:
                 async for line in self._delete_remote(job):
@@ -63,12 +66,13 @@ class SyncExecutor:
             job.finished_at = utc_now_iso()
             yield f"ERROR: {e}"
 
-    async def _rsync(self, job: SyncJob) -> AsyncIterator[str]:
-        src = os.path.join(self.local_mount, job.sync_root, job.folder) + "/"
-        dst = (
+    async def _rsync(self, job: SyncJob, direction: str = "push") -> AsyncIterator[str]:
+        local = os.path.join(self.local_mount, job.sync_root, job.folder) + "/"
+        remote = (
             f"{self.remote_user}@{self.remote_host}:"
             f"{self.remote_mount}/{job.sync_root}/{job.folder}/"
         )
+        src, dst = (local, remote) if direction == "push" else (remote, local)
         cmd = [
             "rsync", "-avz", "--progress", "--partial",
             *_EXCLUDES,
@@ -105,7 +109,7 @@ class SyncExecutor:
         for part in re.split(r"[\r\n]+", buf):
             part = part.strip()
             if part and "100%" in part:
-                line = self._format_progress(current_file, part, total)
+                line = self._format_progress(current_file, part)
                 if line:
                     yield line
         await proc.wait()

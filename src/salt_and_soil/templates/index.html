@@ -212,6 +212,7 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
 }
 .action-select:focus { outline: none; border-color: var(--teal); box-shadow: 0 0 0 3px rgba(26,191,186,.12); }
 .sel-sync   { border-color: var(--teal);  background: var(--teal-light);  color: var(--teal-dark); }
+.sel-pull   { border-color: var(--amber); background: var(--amber-bg);    color: #92400E; }
 .sel-delete { border-color: var(--red);   background: var(--red-bg);      color: var(--red); }
 .sel-skip   { color: var(--text-dim); }
 
@@ -227,6 +228,7 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
 .exec-stat { display: flex; align-items: baseline; gap: 5px; font-size: 12px; color: var(--text-mid); }
 .exec-stat .n { font-family: var(--mono); font-size: 15px; font-weight: 600; }
 .n-sync { color: var(--teal); }
+.n-pull { color: var(--amber); }
 .n-del  { color: var(--red); }
 .n-skip { color: var(--text-dim); }
 
@@ -355,7 +357,7 @@ const ACTION_OPTS = {
   in_sync:     [['skip','— Skip'],['sync','↑ Sync'],['delete_remote','✕ Delete']],
   needs_sync:  [['sync','↑ Sync'],['skip','— Skip'],['delete_remote','✕ Delete']],
   local_only:  [['sync','↑ Sync'],['skip','— Skip']],
-  remote_only: [['skip','— Skip'],['delete_remote','✕ Delete']],
+  remote_only: [['skip','— Skip'],['pull','↓ Pull'],['delete_remote','✕ Delete']],
 };
 
 const DEFAULT_ACTION = {
@@ -493,7 +495,7 @@ function renderFolders() {
         Math.abs(d.local_size - d.remote_size) / Math.max(d.local_size, 1) > 0.01;
       const opts = (ACTION_OPTS[d.diff_status] || []).map(([v,l]) =>
         `<option value="${v}" ${actions[k]===v?'selected':''}>${l}</option>`).join('');
-      const sc = actions[k]==='sync' ? 'sel-sync' : actions[k]==='delete_remote' ? 'sel-delete' : 'sel-skip';
+      const sc = actions[k]==='sync' ? 'sel-sync' : actions[k]==='pull' ? 'sel-pull' : actions[k]==='delete_remote' ? 'sel-delete' : 'sel-skip';
       const dataRow = document.createElement('tr');
       dataRow.setAttribute('data-root', root);
       if (isCollapsed) dataRow.style.display = 'none';
@@ -522,7 +524,7 @@ function renderFolders() {
 
 function setAction(k, sel) {
   actions[k] = sel.value;
-  sel.className = `action-select ${sel.value==='sync'?'sel-sync':sel.value==='delete_remote'?'sel-delete':'sel-skip'}`;
+  sel.className = `action-select ${sel.value==='sync'?'sel-sync':sel.value==='pull'?'sel-pull':sel.value==='delete_remote'?'sel-delete':'sel-skip'}`;
   updateStats();
 }
 
@@ -531,10 +533,12 @@ function updateStats() {
   if (!el) return;
   const vals = Object.values(actions);
   const s = vals.filter(a=>a==='sync').length;
+  const p = vals.filter(a=>a==='pull').length;
   const d = vals.filter(a=>a==='delete_remote').length;
   const k = vals.filter(a=>a==='skip').length;
   el.innerHTML = `
     <div class="exec-stat"><span class="n n-sync">${s}</span> to sync</div>
+    <div class="exec-stat"><span class="n n-pull">${p}</span> to pull</div>
     <div class="exec-stat"><span class="n n-del">${d}</span> to delete</div>
     <div class="exec-stat"><span class="n n-skip">${k}</span> skipped</div>`;
 }

@@ -20,6 +20,7 @@ class CompareMode(str, Enum):
 
 class SyncAction(str, Enum):
     SYNC = "sync"
+    PULL = "pull"
     DELETE_REMOTE = "delete_remote"
     SKIP = "skip"
 
