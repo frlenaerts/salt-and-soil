@@ -371,11 +371,6 @@ function connectSSE() {
   es = new EventSource('/api/stream');
   es.onmessage = ev => {
     const d = JSON.parse(ev.data);
-    if (d.status === 'done' && syncInitiated) {
-      appendLog(d.new_log || []);
-      startScan(true);
-      return;
-    }
     setStatus(d.status);
     appendLog(d.new_log || []);
     if (d.diffs?.length)    { diffs = d.diffs; renderFolders(); }
