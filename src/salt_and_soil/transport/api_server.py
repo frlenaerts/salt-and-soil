@@ -110,25 +110,33 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
     @app.get("/api/stream")
     async def stream(request: Request):
         async def gen():
-            sent_log    = 0
+            sent_total  = 0
             sent_status = None
             try:
                 while _running:
                     if await request.is_disconnected():
                         break
                     snap = rt.snapshot_for_ui()
-                    cur_len = len(snap["log"])
-                    if snap["status"] != sent_status or cur_len != sent_log:
+                    cur_total = snap.get("log_total", len(snap["log"]))
+                    if snap["status"] != sent_status or cur_total != sent_total:
+                        log_list  = snap["log"]
+                        new_count = cur_total - sent_total
+                        if new_count <= 0:
+                            new_log = []
+                        elif new_count >= len(log_list):
+                            new_log = log_list
+                        else:
+                            new_log = log_list[-new_count:]
                         payload = {
                             "status":       snap["status"],
-                            "new_log":      snap["log"][sent_log:],
+                            "new_log":      new_log,
                             "diffs":        snap["diffs"] if snap["status"] in ("ready", "syncing", "done") else [],
                             "mount":        snap.get("mount"),
                             "error":        snap.get("error"),
                             "last_scan_at": snap.get("last_scan_at"),
                         }
                         yield f"data: {json.dumps(payload)}\n\n"
-                        sent_log    = cur_len
+                        sent_total  = cur_total
                         sent_status = snap["status"]
                     await asyncio.sleep(0.4)
             except asyncio.CancelledError:

@@ -25,12 +25,15 @@ from ..shared.paths import human_size
 
 log = logging.getLogger("salt-and-soil.orchestrator")
 
+_LOG_CAP = 500
+
 
 class OrchestratorRuntime:
     def __init__(self, cfg: Config):
         self.cfg    = cfg
         self.status = AppStatus.IDLE
         self._log:  list[str] = []
+        self._log_total: int = 0
         self._diffs: list[FolderDiff] = []
         self._mount_info: dict | None = None
         self._error: str = ""
@@ -71,19 +74,26 @@ class OrchestratorRuntime:
         from datetime import datetime
         return datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
+    def _append_log(self, line: str):
+        self._log.append(line)
+        self._log_total += 1
+        if len(self._log) > _LOG_CAP:
+            self._log = self._log[-_LOG_CAP:]
+
     def _info(self, msg: str):
         log.info(msg)
-        self._log.append(f"{self._ts()} - {msg}")
+        self._append_log(f"{self._ts()} - {msg}")
 
     def _err(self, msg: str):
         log.error(msg)
-        self._log.append(f"{self._ts()} - ⚠ {msg}")
+        self._append_log(f"{self._ts()} - ⚠ {msg}")
 
     # ── Reset ─────────────────────────────────────────────────────────────────
 
     def reset(self):
         self.status      = AppStatus.IDLE
         self._log        = []
+        self._log_total  = 0
         self._diffs      = []
         self._mount_info = None
         self._error      = ""
@@ -94,6 +104,7 @@ class OrchestratorRuntime:
         return {
             "status":       self.status.value,
             "log":          list(self._log),
+            "log_total":    self._log_total,
             "diffs":        [_diff_to_dict(d) for d in self._diffs],
             "mount":        self._mount_info,
             "error":        self._error,
@@ -264,7 +275,7 @@ class OrchestratorRuntime:
                 }.get(job.action, "?")
                 self._info(f"[{self._node}] {icon} {job.sync_root}/{job.folder}")
                 async for line in executor.execute(job):
-                    self._log.append(f"{self._ts()} - [{self._node}]    {line}")
+                    self._append_log(f"{self._ts()} - [{self._node}]    {line}")
 
             state = self.repo.load_state(self.cfg.app.node_name, self.cfg.app.role.value)
             state.last_sync_at = utc_now_iso()

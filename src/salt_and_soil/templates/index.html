@@ -417,12 +417,14 @@ function setStatus(s) {
 }
 
 // ── Log ───────────────────────────────────────────────────────────────────────
+const LOG_CAP = 500;
 function appendLog(lines) {
   const box = document.getElementById('log-box');
   if (lines.length && box.querySelector('span')) box.innerHTML = '';
   lines.forEach(l => {
     const d = document.createElement('div'); d.textContent = l; box.insertBefore(d, box.firstChild);
   });
+  while (box.children.length > LOG_CAP) box.removeChild(box.lastChild);
   box.scrollTop = 0;
 }
 
