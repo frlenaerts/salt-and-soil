@@ -376,6 +376,11 @@ function connectSSE() {
     if (d.diffs?.length)    { diffs = d.diffs; renderFolders(); }
     if (d.last_scan_at)     updateLastScan(d.last_scan_at);
     if (d.error)            showBanner('error', '⚠ ' + d.error);
+    if (d.status === 'ready' && syncInitiated) {
+      syncInitiated = false;
+      showBanner('done', '✓ Sync complete — NAS devices are sleeping 🛌');
+      closeSse();
+    }
     if (d.status === 'done')  { onDone(); closeSse(); }
     if (d.status === 'error') { closeSse(); }
   };
@@ -415,10 +420,10 @@ function updateLastScan(iso) {
 }
 
 // ── Scan ──────────────────────────────────────────────────────────────────────
-function startScan() {
+function startScan(keepLog = false) {
   document.getElementById('banner-area').innerHTML = '';
   document.getElementById('folders-area').innerHTML = '';
-  document.getElementById('log-box').innerHTML = '';
+  if (!keepLog) document.getElementById('log-box').innerHTML = '';
   diffs = []; actions = {}; collapsed = {};
   connectSSE();
   fetch('/api/start', {method:'POST'});
@@ -536,11 +541,11 @@ function doExecute() {
 }
 
 function onDone() {
-  showBanner('done', '✓ Sync complete — NAS devices are sleeping 🛌');
-  setStatus('done');
   if (syncInitiated) {
-    syncInitiated = false;
-    setTimeout(() => startScan(), 1500);
+    setTimeout(() => startScan(true), 0);
+  } else {
+    setStatus('done');
+    showBanner('done', '✓ Sync complete — NAS devices are sleeping 🛌');
   }
 }
 
