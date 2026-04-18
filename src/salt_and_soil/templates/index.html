@@ -331,6 +331,7 @@ let actions   = {};   // key = "root|||name" → action string
 let collapsed = {};   // key = sync_root → bool
 let es        = null;
 let syncInitiated = false;
+let prevStatus    = null;
 
 const LABELS = {
   idle:'Idle', mounting:'Mounting…', scanning:'Scanning…',
@@ -371,9 +372,15 @@ function connectSSE() {
   es = new EventSource('/api/stream');
   es.onmessage = ev => {
     const d = JSON.parse(ev.data);
+    // Post-sync rescan starting: reset action selections so they default to Skip
+    if (prevStatus === 'syncing' && d.status === 'scanning') {
+      actions = {};
+      renderFolders();
+    }
+    prevStatus = d.status;
     setStatus(d.status);
     appendLog(d.new_log || []);
-    if (d.diffs?.length)    { diffs = d.diffs; actions = {}; renderFolders(); }
+    if (d.diffs?.length)    { diffs = d.diffs; renderFolders(); }
     if (d.last_scan_at)     updateLastScan(d.last_scan_at);
     if (d.error)            showBanner('error', '⚠ ' + d.error);
     if (d.status === 'ready' && syncInitiated) {
