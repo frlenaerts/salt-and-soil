@@ -12,6 +12,14 @@ from ..shared.clock import utc_now_iso
 from ..shared.paths import human_size
 
 
+_EXCLUDES = [
+    "--exclude=.DS_Store",
+    "--exclude=*@SynoEAStream",
+    "--exclude=*@SynoResource",
+    "--exclude=.SynologyWorkingDirectory",
+]
+
+
 class SyncExecutor:
     def __init__(
         self,
@@ -55,18 +63,35 @@ class SyncExecutor:
             job.finished_at = utc_now_iso()
             yield f"ERROR: {e}"
 
+    async def _count_to_transfer(self, src: str, dst: str) -> int:
+        cmd = [
+            "rsync", "-az", "--dry-run", "--stats",
+            *_EXCLUDES,
+            "-e", self._ssh_opts,
+            src, dst,
+        ]
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await proc.communicate()
+        for line in stdout.decode(errors="replace").splitlines():
+            m = re.search(r"Number of regular files transferred:\s*([\d,]+)", line)
+            if m:
+                return int(m.group(1).replace(",", ""))
+        return 0
+
     async def _rsync(self, job: SyncJob) -> AsyncIterator[str]:
         src = os.path.join(self.local_mount, job.sync_root, job.folder) + "/"
         dst = (
             f"{self.remote_user}@{self.remote_host}:"
             f"{self.remote_mount}/{job.sync_root}/{job.folder}/"
         )
+        total = await self._count_to_transfer(src, dst)
         cmd = [
             "rsync", "-avz", "--progress", "--partial",
-            "--exclude=.DS_Store",
-            "--exclude=*@SynoEAStream",
-            "--exclude=*@SynoResource",
-            "--exclude=.SynologyWorkingDirectory",
+            *_EXCLUDES,
             "-e", self._ssh_opts,
             src, dst,
         ]
@@ -90,7 +115,7 @@ class SyncExecutor:
                     continue
                 if "%" in part:
                     if "100%" in part:
-                        line = self._format_progress(current_file, part)
+                        line = self._format_progress(current_file, part, total)
                         if line:
                             yield line
                 else:
@@ -100,7 +125,7 @@ class SyncExecutor:
         for part in re.split(r"[\r\n]+", buf):
             part = part.strip()
             if part and "100%" in part:
-                line = self._format_progress(current_file, part)
+                line = self._format_progress(current_file, part, total)
                 if line:
                     yield line
         await proc.wait()
@@ -108,9 +133,9 @@ class SyncExecutor:
             raise RuntimeError(f"rsync exit {proc.returncode}")
 
     @staticmethod
-    def _format_progress(filename: str | None, line: str) -> str | None:
+    def _format_progress(filename: str | None, line: str, total: int) -> str | None:
         m = re.search(
-            r"([\d,]+)\s+100%\s+([\d.]+\s*\S+/s).*xfr#(\d+).*(?:to-chk|ir-chk)=\d+/(\d+)",
+            r"([\d,]+)\s+100%\s+([\d.]+\s*\S+/s).*xfr#(\d+)",
             line,
         )
         if not m:
@@ -118,9 +143,9 @@ class SyncExecutor:
         size   = human_size(int(m.group(1).replace(",", "")))
         speed  = m.group(2)
         num    = m.group(3)
-        total  = m.group(4)
         name   = filename or "?"
-        return f"{name} — {size} — {speed} — ({num}/{total})"
+        total_str = str(total) if total > 0 else "?"
+        return f"{name} — {size} — {speed} — ({num}/{total_str})"
 
     async def _delete_remote(self, job: SyncJob) -> AsyncIterator[str]:
         path = f"{self.remote_mount}/{job.sync_root}/{job.folder}"
