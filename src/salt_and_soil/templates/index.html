@@ -373,7 +373,7 @@ function connectSSE() {
     const d = JSON.parse(ev.data);
     setStatus(d.status);
     appendLog(d.new_log || []);
-    if (d.diffs?.length)    { diffs = d.diffs; renderFolders(); }
+    if (d.diffs?.length)    { diffs = d.diffs; actions = {}; renderFolders(); }
     if (d.last_scan_at)     updateLastScan(d.last_scan_at);
     if (d.error)            showBanner('error', '⚠ ' + d.error);
     if (d.status === 'ready' && syncInitiated) {
