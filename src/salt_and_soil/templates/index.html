@@ -371,6 +371,11 @@ function connectSSE() {
   es = new EventSource('/api/stream');
   es.onmessage = ev => {
     const d = JSON.parse(ev.data);
+    if (d.status === 'done' && syncInitiated) {
+      appendLog(d.new_log || []);
+      startScan(true);
+      return;
+    }
     setStatus(d.status);
     appendLog(d.new_log || []);
     if (d.diffs?.length)    { diffs = d.diffs; renderFolders(); }
@@ -378,7 +383,7 @@ function connectSSE() {
     if (d.error)            showBanner('error', '⚠ ' + d.error);
     if (d.status === 'ready' && syncInitiated) {
       syncInitiated = false;
-      showBanner('done', '✓ Sync complete — NAS devices are sleeping 🛌');
+      showBanner('done', '✓ Sync complete — NAS devices can go to sleep now 🛌');
       closeSse();
     }
     if (d.status === 'done')  { onDone(); closeSse(); }
@@ -541,12 +546,8 @@ function doExecute() {
 }
 
 function onDone() {
-  if (syncInitiated) {
-    setTimeout(() => startScan(true), 0);
-  } else {
-    setStatus('done');
-    showBanner('done', '✓ Sync complete — NAS devices are sleeping 🛌');
-  }
+  setStatus('done');
+  showBanner('done', '✓ Sync complete — NAS devices can go to sleep now 🛌');
 }
 
 function showBanner(type, msg) {
