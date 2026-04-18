@@ -63,6 +63,10 @@ class SyncExecutor:
         )
         cmd = [
             "rsync", "-avz", "--progress", "--partial",
+            "--exclude=.DS_Store",
+            "--exclude=*@SynoEAStream",
+            "--exclude=*@SynoResource",
+            "--exclude=.SynologyWorkingDirectory",
             "-e", self._ssh_opts,
             src, dst,
         ]
