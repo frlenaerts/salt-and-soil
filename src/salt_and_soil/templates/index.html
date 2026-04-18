@@ -421,9 +421,9 @@ function appendLog(lines) {
   const box = document.getElementById('log-box');
   if (lines.length && box.querySelector('span')) box.innerHTML = '';
   lines.forEach(l => {
-    const d = document.createElement('div'); d.textContent = l; box.appendChild(d);
+    const d = document.createElement('div'); d.textContent = l; box.insertBefore(d, box.firstChild);
   });
-  box.scrollTop = box.scrollHeight;
+  box.scrollTop = 0;
 }
 
 // ── Last scan timestamp ───────────────────────────────────────────────────────
@@ -540,7 +540,7 @@ function updateStats() {
     <div class="exec-stat"><span class="n n-sync">${s}</span> to sync</div>
     <div class="exec-stat"><span class="n n-pull">${p}</span> to pull</div>
     <div class="exec-stat"><span class="n n-del">${d}</span> to delete</div>
-    <div class="exec-stat"><span class="n n-skip">${k}</span> skipped</div>`;
+    <div class="exec-stat"><span class="n n-skip">${k}</span> to skip</div>`;
 }
 
 // ── Execute ───────────────────────────────────────────────────────────────────
