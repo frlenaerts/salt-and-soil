@@ -119,16 +119,15 @@ class SyncExecutor:
     @staticmethod
     def _format_progress(filename: str | None, line: str) -> str | None:
         m = re.search(
-            r"([\d,]+)\s+100%\s+([\d.]+\s*\S+/s).*xfr#(\d+)",
+            r"([\d,]+)\s+100%\s+([\d.]+\s*\S+/s)",
             line,
         )
         if not m:
             return None
         size  = human_size(int(m.group(1).replace(",", "")))
         speed = m.group(2)
-        num   = m.group(3)
         name  = filename or "?"
-        return f"{name} — {size} — {speed} — ({num})"
+        return f"{name} — {size} — {speed}"
 
     async def _delete_remote(self, job: SyncJob) -> AsyncIterator[str]:
         path = f"{self.remote_mount}/{job.sync_root}/{job.folder}"

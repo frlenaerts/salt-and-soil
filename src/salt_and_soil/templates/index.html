@@ -441,9 +441,9 @@ function updateLastScan(iso) {
 // ── Scan ──────────────────────────────────────────────────────────────────────
 function startScan(keepLog = false) {
   document.getElementById('banner-area').innerHTML = '';
-  document.getElementById('folders-area').innerHTML = '';
   if (!keepLog) document.getElementById('log-box').innerHTML = '';
-  diffs = []; actions = {}; collapsed = {};
+  actions = {};
+  if (diffs.length) renderFolders();
   connectSSE();
   fetch('/api/start', {method:'POST'});
   setStatus('scanning');
