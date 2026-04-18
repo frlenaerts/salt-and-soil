@@ -439,9 +439,8 @@ function updateLastScan(iso) {
 }
 
 // ── Scan ──────────────────────────────────────────────────────────────────────
-function startScan(keepLog = false) {
+function startScan() {
   document.getElementById('banner-area').innerHTML = '';
-  if (!keepLog) document.getElementById('log-box').innerHTML = '';
   actions = {};
   if (diffs.length) renderFolders();
   connectSSE();
