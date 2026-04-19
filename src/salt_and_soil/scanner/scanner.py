@@ -66,7 +66,13 @@ class DirScanner:
 
     async def _dir_size(self, path: Path) -> int:
         proc = await asyncio.create_subprocess_exec(
-            "du", "-sb", str(path),
+            "du", "-sb",
+            "--exclude=@eaDir",
+            "--exclude=*@SynoEAStream",
+            "--exclude=*@SynoResource",
+            "--exclude=.DS_Store",
+            "--exclude=.SynologyWorkingDirectory",
+            str(path),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
         )

@@ -14,6 +14,7 @@ from ..shared.paths import human_size
 
 _EXCLUDES = [
     "--exclude=.DS_Store",
+    "--exclude=@eaDir",
     "--exclude=*@SynoEAStream",
     "--exclude=*@SynoResource",
     "--exclude=.SynologyWorkingDirectory",
@@ -102,24 +103,36 @@ class SyncExecutor:
                         line = self._format_progress(current_file, part)
                         if line:
                             yield line
-                else:
-                    name = part.split("/")[-1]
-                    if name and "." in name:
-                        current_file = name
+                            current_file = None
+                elif self._looks_like_filename(part):
+                    current_file = part.split("/")[-1]
         for part in re.split(r"[\r\n]+", buf):
             part = part.strip()
             if part and "100%" in part:
                 line = self._format_progress(current_file, part)
                 if line:
                     yield line
+                    current_file = None
         await proc.wait()
         if proc.returncode != 0:
             raise RuntimeError(f"rsync exit {proc.returncode}")
 
     @staticmethod
+    def _looks_like_filename(part: str) -> bool:
+        low = part.lower()
+        if low.startswith((
+            "sending ", "receiving ", "created ", "building ",
+            "sent ", "total ", "wrote ", "done",
+            "delta-", "rsync:", "rsync error",
+        )):
+            return False
+        name = part.split("/")[-1]
+        return bool(name) and ("." in name or "/" in part)
+
+    @staticmethod
     def _format_progress(filename: str | None, line: str) -> str | None:
         m = re.search(
-            r"([\d,]+)\s+100%\s+([\d.]+\s*\S+/s)",
+            r"([\d,]+)\s+100%\s+([\d.]+\s*\S+/s).*?xfr#\d+",
             line,
         )
         if not m:
