@@ -146,9 +146,10 @@ role      = "orchestrator"
 node_name = "your-node-name"
 
 [mount]
-remote_host      = "192.168.1.x"      # IP of the local NAS
-remote_share     = "/volume1/video"   # NFS export path
-local_mount_path = "/mnt/nas"
+remote_host       = "192.168.1.x"     # IP of the local NAS
+remote_share      = "/volume1/video"  # NFS export path
+local_mount_path  = "/mnt/nas"
+mount_retry_delay = 10                # seconds before retrying a failed mount (NAS wake-up)
 
 [sync]
 sync_roots = ["Movies", "TV Series"]
@@ -156,13 +157,15 @@ sync_roots = ["Movies", "TV Series"]
 [[agents]]
 name              = "agent-01"
 host              = "100.x.x.x"       # Tailscale IP of the agent
-port              = 8080
+port              = 8080              # free to choose — must match agent's [server] port
 ssh_host          = "100.x.x.x"       # same Tailscale IP
 ssh_user          = "root"
 ssh_key_file      = "/root/.ssh/saltsoil_key"
 remote_mount_path = "/mnt/nas"
 remote_share      = "/volume1/video"  # NFS share on the agent's NAS
 ```
+
+Orchestrator and agent can both use port `8080` when they run on separate hosts (different IPs). If you run them on the same host, give each one a distinct port under `[server]`.
 
 Key settings for the **agent** — same file, different role:
 
@@ -288,6 +291,15 @@ The service handles venv activation and `PYTHONPATH` automatically. Use standard
 systemctl status salt-and-soil
 systemctl restart salt-and-soil
 journalctl -u salt-and-soil -f
+```
+
+---
+
+## Running tests
+
+```bash
+source .venv/bin/activate
+PYTHONPATH=src pytest
 ```
 
 ---

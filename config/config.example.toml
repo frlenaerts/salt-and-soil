@@ -42,7 +42,7 @@ snapshot_dir = "./data/state/snapshots"
 [[agents]]
 name              = "agent-01"
 host              = "10.0.0.2"            # IP of the agent node (API calls)
-port              = 8081
+port              = 8080                  # free to choose — must match agent's [server] port
 api_key           = ""                    # optional
 ssh_host          = "10.0.0.2"            # IP for rsync over SSH
 ssh_user          = "root"
