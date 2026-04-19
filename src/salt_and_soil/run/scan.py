@@ -16,6 +16,7 @@ async def scan_and_print(config_path: str | None = None, roots: list[str] | None
         mount_point = cfg.mount.local_mount_path,
         sync_roots  = targets,
         node_name   = cfg.app.node_name,
+        excludes    = cfg.sync.excludes,
     )
     repo = StateRepository(cfg.state.state_file, cfg.state.snapshot_dir)
 

@@ -73,12 +73,23 @@ def load(path: str | Path | None = None) -> Config:
     _sync_roots = sync_raw.get("sync_roots", ["videos"])
     if not _sync_roots:
         raise ValueError("sync.sync_roots must not be empty")
+    _exclude_file = sync_raw.get("exclude_file", "")
+    _excludes: list[str] = []
+    if _exclude_file:
+        _ep = Path(_exclude_file)
+        if _ep.exists():
+            for ln in _ep.read_text(encoding="utf-8").splitlines():
+                s = ln.strip()
+                if s and not s.startswith("#"):
+                    _excludes.append(s)
     sync = SyncConfig(
         scan_on_startup  = sync_raw.get("scan_on_startup", False),
         auto_resume      = sync_raw.get("auto_resume", True),
         compare_mode     = _mode,
         max_parallel_jobs= int(sync_raw.get("max_parallel_jobs", 2)),
         sync_roots       = _sync_roots,
+        exclude_file     = _exclude_file,
+        excludes         = _excludes,
     )
 
     state_raw = raw.get("state", {})

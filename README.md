@@ -177,6 +177,40 @@ remote_share     = "/volume1/video"
 local_mount_path = "/mnt/nas"
 ```
 
+### Excluding files from scan + sync
+
+Patterns to skip are kept in a plain-text file (`gitignore`-style) so you can edit them without touching the code. Bootstrap copies `config/excludes.example.list` → `config/excludes.list`:
+
+```text
+# Synology
+@eaDir
+*@SynoEAStream
+*@SynoResource
+.SynologyWorkingDirectory
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+desktop.ini
+```
+
+Referenced from `config.toml`:
+
+```toml
+[sync]
+exclude_file = "./config/excludes.list"
+```
+
+One pattern per line; `#` starts a comment; `*`, `?`, `[..]` work (rsync/fnmatch style). The same file is applied by:
+
+- **`du`** during scan (size calculation)
+- **`rsync`** during sync (via `--exclude-from`)
+- **Top-level folder filter** in the scanner
+
+Deploy the **same file** on both orchestrator and agent so their scans compute identical sizes — otherwise you'll see false "Different" statuses.
+
 ### Synology NFS permissions
 
 On each Synology NAS, go to **Control Panel → Shared Folder → [folder] → Edit → NFS Permissions** and add a rule for the container's local IP:

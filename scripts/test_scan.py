@@ -221,6 +221,7 @@ async def _do_scan(cfg, nfs: NFSMount, repo: StateRepository):
             mount_point = cfg.mount.local_mount_path,
             sync_roots  = roots,
             node_name   = cfg.app.node_name,
+            excludes    = cfg.sync.excludes,
         )
         ts.info(f"Scanning: {', '.join(roots)}...")
 

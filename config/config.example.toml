@@ -29,6 +29,7 @@ auto_resume       = true
 compare_mode      = "size_mtime"  # "size_mtime" | "checksum"
 max_parallel_jobs = 2
 sync_roots        = ["videos"]    # subdirectories inside the NFS share
+exclude_file      = "./config/excludes.list"   # gitignore-style patterns applied to scan + rsync
 
 # Local state storage
 [state]

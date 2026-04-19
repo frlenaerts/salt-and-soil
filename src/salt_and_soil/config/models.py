@@ -34,6 +34,8 @@ class SyncConfig:
     compare_mode: CompareMode = CompareMode.SIZE_MTIME
     max_parallel_jobs: int = 2
     sync_roots: list[str] = field(default_factory=lambda: ["videos"])
+    exclude_file: str = ""
+    excludes: list[str] = field(default_factory=list)
 
 
 @dataclass

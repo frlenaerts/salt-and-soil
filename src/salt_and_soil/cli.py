@@ -65,7 +65,7 @@ def _cmd_scan(root: str | None):
     async def _scan():
         cfg     = load_config()
         roots   = [root] if root else cfg.sync.sync_roots
-        scanner = DirScanner(cfg.mount.local_mount_path, roots, cfg.app.node_name)
+        scanner = DirScanner(cfg.mount.local_mount_path, roots, cfg.app.node_name, cfg.sync.excludes)
         for snap in await scanner.scan_all():
             print(f"\n/{snap.sync_root}  ({snap.entry_count} mappen, {human_size(snap.total_size)})")
             for e in snap.top_level_dirs():

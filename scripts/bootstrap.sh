@@ -54,6 +54,13 @@ else
     echo "  config/config.toml already exists — not overwritten"
 fi
 
+if [ ! -f "$APP_DIR/config/excludes.list" ]; then
+    cp "$APP_DIR/config/excludes.example.list" "$APP_DIR/config/excludes.list"
+    echo "✓ config/excludes.list created — edit to add/remove ignore patterns"
+else
+    echo "  config/excludes.list already exists — not overwritten"
+fi
+
 # ── SSH key (orchestrator only) ───────────────────────────────────────────────
 if [ "$ROLE" = "orchestrator" ] && [ ! -f "$HOME/.ssh/saltsoil_key" ]; then
     mkdir -p "$HOME/.ssh"

@@ -161,6 +161,7 @@ class OrchestratorRuntime:
             mount_point = self.cfg.mount.local_mount_path,
             sync_roots  = self.cfg.sync.sync_roots,
             node_name   = self.cfg.app.node_name,
+            excludes    = self.cfg.sync.excludes,
         )
         local_snaps: dict[str, ScanSnapshot] = {}
         for snap in await scanner.scan_all():
@@ -265,6 +266,7 @@ class OrchestratorRuntime:
                 remote_mount = agent_cfg.remote_mount_path,
                 ssh_key_file = agent_cfg.ssh_key_file,
                 remote_name  = agent_cfg.name,
+                exclude_file = self.cfg.sync.exclude_file,
             )
 
             for job in to_do:

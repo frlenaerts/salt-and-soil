@@ -5,6 +5,7 @@ Works recursively but only stores top-level entries for v1.
 from __future__ import annotations
 
 import asyncio
+import fnmatch
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,10 +14,17 @@ from ..shared.clock import utc_now_iso, snapshot_id
 
 
 class DirScanner:
-    def __init__(self, mount_point: str, sync_roots: list[str], node_name: str):
+    def __init__(
+        self,
+        mount_point: str,
+        sync_roots: list[str],
+        node_name: str,
+        excludes: list[str] | None = None,
+    ):
         self.mount_point = Path(mount_point)
         self.sync_roots  = sync_roots
         self.node_name   = node_name
+        self.excludes    = list(excludes or [])
 
     async def scan_all(self) -> list[ScanSnapshot]:
         snapshots = []
@@ -40,13 +48,11 @@ class DirScanner:
             return snap
 
         entries = []
-        _SKIP = {"@eaDir", "@recycle", "#recycle", ".DS_Store"}
-
         try:
             for entry in sorted(root_path.iterdir(), key=lambda e: e.name):
                 if entry.is_symlink() or not entry.is_dir():
                     continue
-                if entry.name in _SKIP or entry.name.startswith("@"):
+                if self._is_excluded(entry.name):
                     continue
                 size  = await self._dir_size(entry)
                 mtime = await self._mtime(entry)
@@ -64,15 +70,16 @@ class DirScanner:
         snap.total_size  = sum(e.size for e in entries)
         return snap
 
+    def _is_excluded(self, name: str) -> bool:
+        return any(fnmatch.fnmatch(name, p) for p in self.excludes)
+
     async def _dir_size(self, path: Path) -> int:
+        args = ["du", "-sb"]
+        for p in self.excludes:
+            args.append(f"--exclude={p}")
+        args.append(str(path))
         proc = await asyncio.create_subprocess_exec(
-            "du", "-sb",
-            "--exclude=@eaDir",
-            "--exclude=*@SynoEAStream",
-            "--exclude=*@SynoResource",
-            "--exclude=.DS_Store",
-            "--exclude=.SynologyWorkingDirectory",
-            str(path),
+            *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
         )

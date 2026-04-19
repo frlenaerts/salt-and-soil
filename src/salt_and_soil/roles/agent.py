@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import fnmatch
 import logging
 from pathlib import Path
 
@@ -22,6 +23,9 @@ class AgentRuntime:
             nfs_options = cfg.mount.nfs_options,
         )
 
+    def _is_excluded(self, name: str) -> bool:
+        return any(fnmatch.fnmatch(name, p) for p in self.cfg.sync.excludes)
+
     async def scan_root(self, sync_root: str) -> list[DirEntry]:
         root_path = Path(self.cfg.mount.local_mount_path) / sync_root
         if not root_path.exists():
@@ -30,7 +34,7 @@ class AgentRuntime:
 
         names = [
             e.name for e in root_path.iterdir()
-            if not e.is_symlink() and e.is_dir()
+            if not e.is_symlink() and e.is_dir() and not self._is_excluded(e.name)
         ]
         sizes = await asyncio.gather(*[self._dir_size(root_path / n) for n in names])
         return sorted(
@@ -39,8 +43,12 @@ class AgentRuntime:
         )
 
     async def _dir_size(self, path: Path) -> int:
+        args = ["du", "-sb"]
+        for p in self.cfg.sync.excludes:
+            args.append(f"--exclude={p}")
+        args.append(str(path))
         proc = await asyncio.create_subprocess_exec(
-            "du", "-sb", str(path),
+            *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
         )

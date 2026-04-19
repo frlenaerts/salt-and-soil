@@ -1,0 +1,17 @@
+# Salt & Soil — excludes file
+# One pattern per line. Blank lines and lines starting with '#' are ignored.
+# Patterns use rsync/du exclude syntax (fnmatch-style: * ? [..]).
+# Deploy the same file on both orchestrator and agent so their scans agree.
+
+# Synology
+@eaDir
+*@SynoEAStream
+*@SynoResource
+.SynologyWorkingDirectory
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+desktop.ini

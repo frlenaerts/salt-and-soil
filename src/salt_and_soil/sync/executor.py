@@ -12,15 +12,6 @@ from ..shared.clock import utc_now_iso
 from ..shared.paths import human_size
 
 
-_EXCLUDES = [
-    "--exclude=.DS_Store",
-    "--exclude=@eaDir",
-    "--exclude=*@SynoEAStream",
-    "--exclude=*@SynoResource",
-    "--exclude=.SynologyWorkingDirectory",
-]
-
-
 class SyncExecutor:
     def __init__(
         self,
@@ -30,6 +21,7 @@ class SyncExecutor:
         remote_mount: str,
         ssh_key_file: str,
         remote_name:  str = "",
+        exclude_file: str = "",
     ):
         self.local_mount  = local_mount
         self.remote_host  = remote_host
@@ -37,6 +29,7 @@ class SyncExecutor:
         self.remote_mount = remote_mount
         self.ssh_key_file = ssh_key_file
         self.remote_name  = remote_name
+        self.exclude_file = exclude_file
 
     @property
     def _ssh_opts(self) -> str:
@@ -74,12 +67,10 @@ class SyncExecutor:
             f"{self.remote_mount}/{job.sync_root}/{job.folder}/"
         )
         src, dst = (local, remote) if direction == "push" else (remote, local)
-        cmd = [
-            "rsync", "-avz", "--progress", "--partial",
-            *_EXCLUDES,
-            "-e", self._ssh_opts,
-            src, dst,
-        ]
+        cmd = ["rsync", "-avz", "--progress", "--partial"]
+        if self.exclude_file:
+            cmd.append(f"--exclude-from={self.exclude_file}")
+        cmd += ["-e", self._ssh_opts, src, dst]
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
