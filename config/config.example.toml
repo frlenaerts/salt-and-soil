@@ -14,13 +14,14 @@ port = 8080
 
 # Local NAS mount (the NAS on the same network as this node)
 [mount]
-enabled          = true
-type             = "nfs"
-remote_host      = "192.168.1.100"        # IP of the NAS
-remote_share     = "/volume1"             # NFS export path
-local_mount_path = "/mnt/salt-and-soil"   # Local mount point
-nfs_version      = 3
-nfs_options      = "soft,timeo=30,retrans=3"
+enabled           = true
+type              = "nfs"
+remote_host       = "192.168.1.100"        # IP of the NAS
+remote_share      = "/volume1"             # NFS export path
+local_mount_path  = "/mnt/salt-and-soil"   # Local mount point
+nfs_version       = 3
+nfs_options       = "soft,timeo=30,retrans=3"
+mount_retry_delay = 10                     # seconds to wait before retrying a failed mount (NAS wake-up)
 
 # What gets synchronised
 [sync]

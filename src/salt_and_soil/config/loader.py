@@ -54,13 +54,14 @@ def load(path: str | Path | None = None) -> Config:
 
     mnt_raw = raw.get("mount", {})
     mount = MountConfig(
-        enabled          = mnt_raw.get("enabled", True),
-        type             = mnt_raw.get("type", "nfs"),
-        remote_host      = mnt_raw.get("remote_host", ""),
-        remote_share     = mnt_raw.get("remote_share", ""),
-        local_mount_path = mnt_raw.get("local_mount_path", "/mnt/salt-and-soil/source"),
-        nfs_version      = int(mnt_raw.get("nfs_version", 3)),
-        nfs_options      = mnt_raw.get("nfs_options", "soft,timeo=30,retrans=3"),
+        enabled           = mnt_raw.get("enabled", True),
+        type              = mnt_raw.get("type", "nfs"),
+        remote_host       = mnt_raw.get("remote_host", ""),
+        remote_share      = mnt_raw.get("remote_share", ""),
+        local_mount_path  = mnt_raw.get("local_mount_path", "/mnt/salt-and-soil/source"),
+        nfs_version       = int(mnt_raw.get("nfs_version", 3)),
+        nfs_options       = mnt_raw.get("nfs_options", "soft,timeo=30,retrans=3"),
+        mount_retry_delay = int(mnt_raw.get("mount_retry_delay", 10)),
     )
 
     sync_raw = raw.get("sync", {})

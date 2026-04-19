@@ -25,6 +25,7 @@ class MountConfig:
     local_mount_path: str = "/mnt/salt-and-soil/source"
     nfs_version: int = 3
     nfs_options: str = "soft,timeo=30,retrans=3"
+    mount_retry_delay: int = 10
 
 
 @dataclass

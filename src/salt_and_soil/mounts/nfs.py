@@ -20,12 +20,14 @@ async def _run(*cmd: str, env: dict | None = None) -> tuple[int, str, str]:
 
 class NFSMount:
     def __init__(self, host: str, share: str, mount_point: str,
-                 nfs_version: int = 3, nfs_options: str = "soft,timeo=30,retrans=3"):
+                 nfs_version: int = 3, nfs_options: str = "soft,timeo=30,retrans=3",
+                 retry_delay: int = 10):
         self.host        = host
         self.share       = share
         self.mount_point = mount_point
         self.nfs_version = nfs_version
         self.nfs_options = nfs_options
+        self.retry_delay = retry_delay
 
     async def is_mounted(self) -> bool:
         rc, _, _ = await _run("mountpoint", "-q", self.mount_point)
@@ -48,7 +50,7 @@ class NFSMount:
         rc, _, err = await _run(*mount_args)
         if rc != 0:
             # NAS may still be coming out of deep sleep — wait and retry once
-            await asyncio.sleep(10)
+            await asyncio.sleep(self.retry_delay)
             rc, _, err = await _run(*mount_args)
 
         if rc != 0:

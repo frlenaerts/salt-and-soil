@@ -21,6 +21,7 @@ class AgentRuntime:
             mount_point = cfg.mount.local_mount_path,
             nfs_version = cfg.mount.nfs_version,
             nfs_options = cfg.mount.nfs_options,
+            retry_delay = cfg.mount.mount_retry_delay,
         )
 
     def _is_excluded(self, name: str) -> bool:
