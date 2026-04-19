@@ -37,11 +37,20 @@ class NFSMount:
         if await self.is_mounted():
             return await self.info()
 
+        # Nudge the NAS in case it's sleeping. ping returns in ms when up,
+        # waits up to 5s while it's waking — either way mount is the real check.
+        await _run("ping", "-c", "1", "-W", "5", self.host)
+
         opts = f"vers={self.nfs_version},{self.nfs_options}"
-        rc, _, err = await _run(
-            "mount", "-t", "nfs", "-o", opts,
-            f"{self.host}:{self.share}", self.mount_point,
-        )
+        mount_args = ("mount", "-t", "nfs", "-o", opts,
+                      f"{self.host}:{self.share}", self.mount_point)
+
+        rc, _, err = await _run(*mount_args)
+        if rc != 0:
+            # NAS may still be coming out of deep sleep — wait and retry once
+            await asyncio.sleep(10)
+            rc, _, err = await _run(*mount_args)
+
         if rc != 0:
             return MountInfo(
                 remote_host=self.host, remote_share=self.share,
