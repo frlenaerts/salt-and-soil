@@ -381,15 +381,12 @@ function connectSSE() {
   es = new EventSource('/api/stream');
   es.onmessage = ev => {
     const d = JSON.parse(ev.data);
-    // Post-sync rescan starting: reset action selections so they default to Skip
-    if (prevStatus === 'syncing' && d.status === 'scanning') {
-      actions = {};
-      renderFolders();
-    }
     prevStatus = d.status;
     setStatus(d.status);
     appendLog(d.new_log || []);
-    if (d.diffs?.length)    { diffs = d.diffs; renderFolders(); }
+    // Fresh diffs from a completed scan → reset actions so DEFAULT_ACTION
+    // is re-applied from the current diff_status (e.g. needs_sync → Sync).
+    if (d.diffs?.length)    { diffs = d.diffs; actions = {}; renderFolders(); }
     if (d.last_scan_at)     updateLastScan(d.last_scan_at);
     if (d.error)            showBanner('error', '⚠ ' + d.error);
     if (d.status === 'ready' && syncInitiated) {
