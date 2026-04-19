@@ -7,5 +7,4 @@ __pycache__/
 .idea/
 output_*.txt
 config.toml
-config/excludes.list
 .pytest_cache/

@@ -179,7 +179,7 @@ local_mount_path = "/mnt/nas"
 
 ### Excluding files from scan + sync
 
-Patterns to skip are kept in a plain-text file (`gitignore`-style) so you can edit them without touching the code. Bootstrap copies `config/excludes.example.list` → `config/excludes.list`:
+Patterns to skip are kept in a plain-text file (`gitignore`-style) so you can edit them without touching the code. The file ships with the repo as `config/excludes.list` — edit it directly:
 
 ```text
 # Synology
