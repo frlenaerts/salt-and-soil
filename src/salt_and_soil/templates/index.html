@@ -160,6 +160,21 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
 .btn-execute:hover:not(:disabled) { background: var(--teal-dark); }
 .btn-cancel   { background: var(--red); color: #fff; font-size: 14px; font-weight: 600; padding: 11px 26px; }
 .btn-cancel:hover:not(:disabled) { filter: brightness(0.92); }
+.cancel-confirm {
+  display: none; align-items: center; justify-content: space-between;
+  gap: 14px; padding: 12px 16px; margin-bottom: 10px;
+  background: var(--red-bg); color: var(--red);
+  border: 1px solid #FECACA; border-radius: var(--r);
+  font-size: 14px;
+}
+.cancel-confirm.visible { display: flex; flex-wrap: wrap; }
+.cancel-confirm .msg { flex: 1; color: #92400E; font-weight: 500; }
+.cancel-confirm .actions { display: flex; gap: 8px; }
+.cancel-confirm .btn-sm { padding: 6px 14px; font-size: 13px; font-weight: 600; border-radius: 6px; cursor: pointer; border: 1px solid transparent; }
+.cancel-confirm .btn-yes { background: var(--red); color: #fff; }
+.cancel-confirm .btn-yes:hover { filter: brightness(0.92); }
+.cancel-confirm .btn-no  { background: #fff; color: var(--text-mid); border-color: var(--border-mid); }
+.cancel-confirm .btn-no:hover { border-color: var(--teal); color: var(--teal); }
 
 /* ── Action row ── */
 .action-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
@@ -634,6 +649,7 @@ function updateExecuteButton() {
   btn.disabled = status !== 'ready' || !hasWork;
   const cancel = document.getElementById('btn-cancel');
   if (cancel) cancel.style.display = status === 'syncing' ? '' : 'none';
+  if (status !== 'syncing') hideCancelConfirm();
 }
 
 // ── Log ───────────────────────────────────────────────────────────────────────
@@ -735,6 +751,16 @@ function renderFolders() {
     });
   });
 
+  const confirmBox = document.createElement('div');
+  confirmBox.className = 'cancel-confirm'; confirmBox.id = 'cancel-confirm';
+  confirmBox.innerHTML = `
+    <span class="msg">Cancel the running sync? The current file transfer will stop, and a scan will run afterwards to refresh folder status.</span>
+    <div class="actions">
+      <button class="btn-sm btn-no"  onclick="hideCancelConfirm()">Keep syncing</button>
+      <button class="btn-sm btn-yes" onclick="confirmCancel()">Yes, cancel</button>
+    </div>`;
+  area.appendChild(confirmBox);
+
   const footer = document.createElement('div');
   footer.className = 'exec-footer'; footer.id = 'exec-footer';
   footer.innerHTML = `
@@ -793,7 +819,15 @@ function doExecute() {
 }
 
 function doCancel() {
-  if (!confirm('Cancel the running sync?\n\nThe current file transfer will stop, and a scan will run afterwards to refresh folder status.')) return;
+  const box = document.getElementById('cancel-confirm');
+  if (box) box.classList.add('visible');
+}
+function hideCancelConfirm() {
+  const box = document.getElementById('cancel-confirm');
+  if (box) box.classList.remove('visible');
+}
+function confirmCancel() {
+  hideCancelConfirm();
   const btn = document.getElementById('btn-cancel');
   if (btn) btn.disabled = true;
   fetch('/api/cancel', {method:'POST'}).catch(() => {});
