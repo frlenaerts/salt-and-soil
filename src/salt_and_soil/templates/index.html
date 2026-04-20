@@ -412,6 +412,14 @@ function setStatus(s) {
   btn.innerHTML = busy ? '⏳ &nbsp;Busy…' : '▶ &nbsp;Start Scan';
   document.getElementById('progress-wrap').classList.toggle('visible', ['mounting','scanning','syncing'].includes(s));
   document.querySelectorAll('.action-select').forEach(el => { el.disabled = busy; });
+  updateExecuteButton();
+}
+
+function updateExecuteButton() {
+  const btn = document.getElementById('btn-execute');
+  if (!btn) return;
+  const hasWork = Object.values(actions).some(a => a !== 'skip');
+  btn.disabled = status !== 'ready' || !hasWork;
 }
 
 // ── Log ───────────────────────────────────────────────────────────────────────
@@ -540,6 +548,7 @@ function updateStats() {
     <div class="exec-stat"><span class="n n-pull">${p}</span> to pull</div>
     <div class="exec-stat"><span class="n n-del">${d}</span> to delete</div>
     <div class="exec-stat"><span class="n n-skip">${k}</span> to skip</div>`;
+  updateExecuteButton();
 }
 
 // ── Execute ───────────────────────────────────────────────────────────────────
