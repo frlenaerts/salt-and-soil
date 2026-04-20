@@ -465,6 +465,7 @@ const DEFAULT_ACTION = {
 
 function key(d) { return d.sync_root + '|||' + d.name; }
 function rootId(root) { return 'root-icon-' + root.replace(/[^a-zA-Z0-9]/g, '_'); }
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 function showTab(name) {
@@ -716,12 +717,12 @@ function renderFolders() {
       dataRow.setAttribute('data-root', root);
       if (isCollapsed) dataRow.style.display = 'none';
       dataRow.innerHTML = `
-        <td class="fname">${d.name}</td>
+        <td class="fname">${esc(d.name)}</td>
         <td class="fsize ${diff?'fsize-diff':''}">${d.local_size > 0 ? d.local_size_hr : '—'}</td>
         <td class="fsize ${diff?'fsize-diff':''}">${d.remote_size > 0 ? d.remote_size_hr : '—'}</td>
         <td><span class="badge badge-${d.diff_status}">${DIFF_LABEL[d.diff_status]||d.diff_status}</span></td>
-        <td><select class="action-select ${sc}" ${['mounting','scanning','syncing'].includes(status)?'disabled':''}
-          onchange="setAction('${k}',this)">${opts}</select></td>`;
+        <td><select class="action-select ${sc}" data-key="${esc(k)}" ${['mounting','scanning','syncing'].includes(status)?'disabled':''}
+          onchange="setAction(this)">${opts}</select></td>`;
       tbody.appendChild(dataRow);
     });
   });
@@ -738,7 +739,8 @@ function renderFolders() {
   updateStats();
 }
 
-function setAction(k, sel) {
+function setAction(sel) {
+  const k = sel.dataset.key;
   actions[k] = sel.value;
   sel.className = `action-select ${sel.value==='sync'?'sel-sync':sel.value==='pull'?'sel-pull':sel.value==='delete_remote'?'sel-delete':'sel-skip'}`;
   updateStats();
