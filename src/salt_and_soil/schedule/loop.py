@@ -14,7 +14,7 @@ from .models import Schedule
 
 log = logging.getLogger("salt-and-soil.schedule")
 
-POLL_INTERVAL = 60  # seconds
+POLL_INTERVAL = 30  # seconds
 
 
 def should_fire(

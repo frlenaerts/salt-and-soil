@@ -170,6 +170,11 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
     async def list_snapshots():
         return rt.repo.list_snapshots()
 
+    @app.get("/api/time")
+    async def get_time():
+        from datetime import datetime
+        return {"now": datetime.now().strftime("%d/%m/%Y %H:%M:%S")}
+
     @app.get("/api/schedule")
     async def get_schedule():
         return rt.get_schedule().to_dict()

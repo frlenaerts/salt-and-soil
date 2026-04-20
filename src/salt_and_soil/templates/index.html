@@ -81,6 +81,10 @@ header {
   font-size: 12px; font-weight: 500;
   background: var(--blue-bg); color: var(--blue);
 }
+.server-clock {
+  font-family: var(--mono); font-size: 12px; color: var(--text-dim);
+  padding: 5px 10px;
+}
 
 /* Schedule form */
 .sched-form { padding: 18px; display: flex; flex-direction: column; gap: 18px; }
@@ -324,6 +328,7 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
     </div>
   </div>
   <div style="display:flex;align-items:center;gap:8px">
+    <div class="server-clock" id="server-clock" title="Server time">—</div>
     <div class="schedule-chip" id="schedule-chip" style="display:none">
       <span style="font-size:12px">⏰</span>
       <span id="schedule-chip-label"></span>
@@ -765,6 +770,19 @@ document.querySelectorAll('input[name="sched-mode"]').forEach(r =>
   r.addEventListener('change', toggleScheduleFormDisabled));
 document.querySelectorAll('#sched-days input[type=checkbox]').forEach(cb =>
   cb.addEventListener('change', () => cb.parentElement.classList.toggle('active', cb.checked)));
+
+// ── Server clock (container time, refreshed every 30s) ────────────────────────
+async function refreshServerClock() {
+  try {
+    const r = await fetch('/api/time');
+    if (r.ok) {
+      const d = await r.json();
+      document.getElementById('server-clock').textContent = d.now;
+    }
+  } catch {}
+}
+refreshServerClock();
+setInterval(refreshServerClock, 30000);
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 fetch('/api/state').then(r=>r.json()).then(d => {
