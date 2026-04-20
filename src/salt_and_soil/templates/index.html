@@ -104,7 +104,16 @@ header {
 }
 .sched-time:focus { outline: none; border-color: var(--teal); }
 .sched-form.disabled .sched-days,
+.sched-form.disabled .sched-presets,
 .sched-form.disabled .sched-time-row { opacity: .35; pointer-events: none; }
+.sched-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 2px; }
+.sched-preset-btn {
+  font-family: var(--sans); font-size: 11px; font-weight: 500;
+  padding: 4px 10px; border-radius: 14px;
+  background: transparent; border: 1px solid var(--border-mid); color: var(--text-mid);
+  cursor: pointer; transition: all .12s;
+}
+.sched-preset-btn:hover { border-color: var(--teal); color: var(--teal); }
 
 /* ── Layout ── */
 main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
@@ -378,6 +387,12 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
         </div>
         <div class="sched-row">
           <span class="sched-label">Days</span>
+          <div class="sched-presets">
+            <button type="button" class="sched-preset-btn" onclick="applyPreset('daily')">Daily</button>
+            <button type="button" class="sched-preset-btn" onclick="applyPreset('weekdays')">Weekdays</button>
+            <button type="button" class="sched-preset-btn" onclick="applyPreset('weekend')">Weekend</button>
+            <button type="button" class="sched-preset-btn" onclick="applyPreset('clear')">Clear</button>
+          </div>
           <div class="sched-days" id="sched-days">
             <label class="sched-day-btn"><input type="checkbox" value="0">Mon</label>
             <label class="sched-day-btn"><input type="checkbox" value="1">Tue</label>
@@ -455,6 +470,28 @@ function showTab(name) {
 
 // ── Schedule ──────────────────────────────────────────────────────────────────
 const DAY_SHORT = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const PRESETS   = {
+  daily:    [0,1,2,3,4,5,6],
+  weekdays: [0,1,2,3,4],
+  weekend:  [5,6],
+  clear:    [],
+};
+
+function applyPreset(name) {
+  const days = PRESETS[name] || [];
+  document.querySelectorAll('#sched-days input[type=checkbox]').forEach(cb => {
+    cb.checked = days.includes(parseInt(cb.value, 10));
+    cb.parentElement.classList.toggle('active', cb.checked);
+  });
+}
+
+function presetLabel(days) {
+  const sorted = [...days].sort((a,b)=>a-b).join(',');
+  if (sorted === '0,1,2,3,4,5,6') return 'Daily';
+  if (sorted === '0,1,2,3,4')     return 'Weekdays';
+  if (sorted === '5,6')           return 'Weekend';
+  return null;
+}
 
 function applyScheduleToUI(s) {
   if (!s) return;
@@ -483,9 +520,10 @@ function updateScheduleChip(s) {
     chip.style.display = 'none';
     return;
   }
-  const days = [...s.days].sort((a,b)=>a-b).map(d => DAY_SHORT[d]).join(' ');
   const hh = String(s.hour).padStart(2, '0');
   const mm = String(s.minute).padStart(2, '0');
+  const preset = presetLabel(s.days);
+  const days = preset || [...s.days].sort((a,b)=>a-b).map(d => DAY_SHORT[d]).join(' ');
   label.textContent = `${hh}:${mm} ${days}`;
   chip.style.display = 'inline-flex';
 }
