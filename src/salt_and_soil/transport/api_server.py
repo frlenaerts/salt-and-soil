@@ -14,10 +14,16 @@ import signal
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, BackgroundTasks, Request, HTTPException, Depends, Header
-from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
+from fastapi import FastAPI, BackgroundTasks, Request, HTTPException, Depends, Header, Form
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
+from ..auth import (
+    AuthStore, hash_password, verify_password,
+    make_session_token, verify_session_token,
+)
+from ..auth.password import MIN_PASSWORD_LENGTH
+from ..auth.session import SESSION_COOKIE, REMEMBER_SECONDS, SESSION_SECONDS
 from ..config.models import Config
 from ..schedule.models import Schedule
 from ..shared.enums import AppStatus, NodeRole
@@ -88,10 +94,187 @@ def create_app(cfg: Config, runtime) -> FastAPI:
 def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
     templates = Jinja2Templates(directory=str(_TMPL_DIR))
 
+    auth_path  = Path(cfg.app.data_dir) / "auth.toml"
+    auth_store = AuthStore(auth_path)
+
+    PUBLIC_PATHS = {"/login", "/logout", "/setup"}
+
+    def _is_public(path: str) -> bool:
+        return path in PUBLIC_PATHS
+
+    def _authenticated_user(request: Request) -> str | None:
+        if not auth_store.exists():
+            return None
+        token = request.cookies.get(SESSION_COOKIE)
+        if not token:
+            return None
+        try:
+            user = auth_store.load()
+        except Exception:
+            return None
+        # Check long TTL first (remember-me); fall back to short TTL.
+        uname = verify_session_token(user.session_secret, token, REMEMBER_SECONDS)
+        if uname and uname == user.username:
+            return uname
+        return None
+
+    @app.middleware("http")
+    async def auth_middleware(request: Request, call_next):
+        path = request.url.path
+        if _is_public(path):
+            return await call_next(request)
+
+        user = _authenticated_user(request)
+        if user:
+            request.state.user = user
+            return await call_next(request)
+
+        # Not authenticated.
+        if not auth_store.exists():
+            if path.startswith("/api/"):
+                return JSONResponse({"error": "setup required"}, status_code=401)
+            return RedirectResponse("/setup", status_code=303)
+        if path.startswith("/api/"):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        return RedirectResponse("/login", status_code=303)
+
+    def _issue_session_cookie(response: Response, username: str, remember: bool) -> None:
+        user = auth_store.load()
+        token = make_session_token(user.session_secret, username)
+        max_age = REMEMBER_SECONDS if remember else None
+        response.set_cookie(
+            key      = SESSION_COOKIE,
+            value    = token,
+            max_age  = max_age,
+            httponly = True,
+            samesite = "lax",
+            secure   = False,
+            path     = "/",
+        )
+
+    # ── Setup (first-run) ────────────────────────────────────────────────────
+    @app.get("/setup", response_class=HTMLResponse)
+    async def setup_get(request: Request):
+        if auth_store.exists():
+            return RedirectResponse("/login", status_code=303)
+        return templates.TemplateResponse("setup.html", {
+            "request": request, "title": "Setup", "error": None, "username": "",
+        })
+
+    @app.post("/setup", response_class=HTMLResponse)
+    async def setup_post(
+        request: Request,
+        username: str  = Form(...),
+        password: str  = Form(...),
+        password2: str = Form(...),
+    ):
+        if auth_store.exists():
+            return RedirectResponse("/login", status_code=303)
+
+        uname = username.strip()
+        err: str | None = None
+        if not uname:
+            err = "Username is required."
+        elif len(password) < MIN_PASSWORD_LENGTH:
+            err = f"Password must be at least {MIN_PASSWORD_LENGTH} characters."
+        elif password != password2:
+            err = "Passwords do not match."
+
+        if err:
+            return templates.TemplateResponse("setup.html", {
+                "request": request, "title": "Setup", "error": err, "username": uname,
+            }, status_code=400)
+
+        auth_store.create(uname, password)
+        resp = RedirectResponse("/", status_code=303)
+        _issue_session_cookie(resp, uname, remember=False)
+        return resp
+
+    # ── Login / Logout ───────────────────────────────────────────────────────
+    @app.get("/login", response_class=HTMLResponse)
+    async def login_get(request: Request):
+        if not auth_store.exists():
+            return RedirectResponse("/setup", status_code=303)
+        if _authenticated_user(request):
+            return RedirectResponse("/", status_code=303)
+        return templates.TemplateResponse("login.html", {
+            "request": request, "title": "Sign in", "error": None, "username": "",
+        })
+
+    @app.post("/login", response_class=HTMLResponse)
+    async def login_post(
+        request: Request,
+        username: str = Form(...),
+        password: str = Form(...),
+        remember: str | None = Form(default=None),
+    ):
+        if not auth_store.exists():
+            return RedirectResponse("/setup", status_code=303)
+
+        uname = username.strip()
+        try:
+            user = auth_store.load()
+        except Exception:
+            user = None
+
+        ok = bool(user and uname == user.username and verify_password(password, user.password_hash))
+        if not ok:
+            return templates.TemplateResponse("login.html", {
+                "request":  request, "title": "Sign in",
+                "error":    "Invalid username or password.",
+                "username": uname,
+            }, status_code=401)
+
+        resp = RedirectResponse("/", status_code=303)
+        _issue_session_cookie(resp, uname, remember=bool(remember))
+        return resp
+
+    @app.post("/logout")
+    async def logout_post():
+        resp = RedirectResponse("/login", status_code=303)
+        resp.delete_cookie(SESSION_COOKIE, path="/")
+        return resp
+
+    @app.get("/logout")
+    async def logout_get():
+        resp = RedirectResponse("/login", status_code=303)
+        resp.delete_cookie(SESSION_COOKIE, path="/")
+        return resp
+
+    # ── Settings ─────────────────────────────────────────────────────────────
+    @app.get("/api/settings")
+    async def settings_get():
+        user = auth_store.load()
+        return {"username": user.username, "created_at": user.created_at}
+
+    @app.post("/api/settings/password")
+    async def settings_change_password(request: Request):
+        body = await request.json()
+        current  = str(body.get("current_password", ""))
+        new_pw   = str(body.get("new_password", ""))
+        confirm  = str(body.get("confirm_password", ""))
+
+        user = auth_store.load()
+        if not verify_password(current, user.password_hash):
+            raise HTTPException(400, "Current password is incorrect.")
+        if len(new_pw) < MIN_PASSWORD_LENGTH:
+            raise HTTPException(400, f"New password must be at least {MIN_PASSWORD_LENGTH} characters.")
+        if new_pw != confirm:
+            raise HTTPException(400, "New passwords do not match.")
+
+        updated = auth_store.change_password(new_pw)
+        # Existing cookies (including the one that made this request) are
+        # invalidated by rotating session_secret — issue a fresh one so the
+        # user stays logged in on the current browser.
+        resp = JSONResponse({"ok": True})
+        _issue_session_cookie(resp, updated.username, remember=False)
+        return resp
+
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request):
         agent     = cfg.agents[0] if cfg.agents else None
         agent_str = agent.name if agent else ""
+        user      = auth_store.load()
         return templates.TemplateResponse("index.html", {
             "request":    request,
             "node_name":  cfg.app.node_name,
@@ -99,6 +282,7 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
             "nas_source": f"{cfg.mount.remote_host}:{cfg.mount.remote_share}",
             "local_path": cfg.mount.local_mount_path,
             "agent_str":  agent_str,
+            "username":   user.username,
         })
 
     @app.post("/api/start")

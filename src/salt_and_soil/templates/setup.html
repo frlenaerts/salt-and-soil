@@ -1,0 +1,22 @@
+{% extends "_auth_base.html" %}
+{% block content %}
+<h1>Create your account</h1>
+<div class="sub">First-time setup — choose a username and password.</div>
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+<form method="post" action="/setup" autocomplete="off">
+  <label>
+    <span class="lbl">Username</span>
+    <input type="text" name="username" required autofocus value="{{ username or '' }}">
+  </label>
+  <label>
+    <span class="lbl">Password</span>
+    <input type="password" name="password" required minlength="8" autocomplete="new-password">
+    <span class="hint">At least 8 characters.</span>
+  </label>
+  <label>
+    <span class="lbl">Repeat password</span>
+    <input type="password" name="password2" required minlength="8" autocomplete="new-password">
+  </label>
+  <button type="submit" class="submit">Create account</button>
+</form>
+{% endblock %}

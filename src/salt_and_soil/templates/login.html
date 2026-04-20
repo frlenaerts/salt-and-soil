@@ -1,0 +1,20 @@
+{% extends "_auth_base.html" %}
+{% block content %}
+<h1>Sign in</h1>
+<div class="sub">Enter your credentials to continue.</div>
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+<form method="post" action="/login" autocomplete="on">
+  <label>
+    <span class="lbl">Username</span>
+    <input type="text" name="username" required autofocus autocomplete="username" value="{{ username or '' }}">
+  </label>
+  <label>
+    <span class="lbl">Password</span>
+    <input type="password" name="password" required autocomplete="current-password">
+  </label>
+  <label class="remember">
+    <input type="checkbox" name="remember" value="1"> Remember me for 30 days
+  </label>
+  <button type="submit" class="submit">Sign in</button>
+</form>
+{% endblock %}

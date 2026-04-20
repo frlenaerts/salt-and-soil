@@ -385,6 +385,7 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
     <button class="tab-btn active" id="tab-btn-folders" onclick="showTab('folders')">Folders</button>
     <button class="tab-btn" id="tab-btn-schedule" onclick="showTab('schedule')">Schedule</button>
     <button class="tab-btn" id="tab-btn-log" onclick="showTab('log')">Log</button>
+    <button class="tab-btn" id="tab-btn-settings" onclick="showTab('settings')">Settings</button>
   </div>
 
   <div class="tab-panel active" id="tab-folders">
@@ -446,6 +447,50 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
       <div class="log-box" id="log-box"><span style="color:var(--text-dim)">Ready to start.</span></div>
     </div>
   </div>
+
+  <div class="tab-panel" id="tab-settings">
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">Account</span>
+      </div>
+      <div class="sched-form">
+        <div class="sched-row">
+          <span class="sched-label">Username</span>
+          <input type="text" class="sched-time" style="width:240px;background:var(--bg)" value="{{ username }}" readonly>
+        </div>
+        <div>
+          <form method="post" action="/logout" style="margin:0">
+            <button type="submit" class="btn btn-outline">Log out</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">Change password</span>
+        <span id="pwd-status" style="font-size:11px;color:var(--text-dim)"></span>
+      </div>
+      <form class="sched-form" id="pwd-form" onsubmit="changePassword(event)">
+        <div class="sched-row">
+          <span class="sched-label">Current password</span>
+          <input type="password" class="sched-time" style="width:240px" id="pwd-current" autocomplete="current-password" required>
+        </div>
+        <div class="sched-row">
+          <span class="sched-label">New password</span>
+          <input type="password" class="sched-time" style="width:240px" id="pwd-new" minlength="8" autocomplete="new-password" required>
+          <span style="font-size:11px;color:var(--text-dim)">At least 8 characters.</span>
+        </div>
+        <div class="sched-row">
+          <span class="sched-label">Repeat new password</span>
+          <input type="password" class="sched-time" style="width:240px" id="pwd-new2" minlength="8" autocomplete="new-password" required>
+        </div>
+        <div>
+          <button type="submit" class="btn btn-primary">Update password</button>
+        </div>
+      </form>
+    </div>
+  </div>
 </main>
 
 <script>
@@ -486,10 +531,39 @@ function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 function showTab(name) {
-  ['folders','schedule','log'].forEach(t => {
+  ['folders','schedule','log','settings'].forEach(t => {
     document.getElementById('tab-' + t).classList.toggle('active', t === name);
     document.getElementById('tab-btn-' + t).classList.toggle('active', t === name);
   });
+}
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+async function changePassword(ev) {
+  ev.preventDefault();
+  const cur  = document.getElementById('pwd-current').value;
+  const pw1  = document.getElementById('pwd-new').value;
+  const pw2  = document.getElementById('pwd-new2').value;
+  const stat = document.getElementById('pwd-status');
+  if (pw1.length < 8)    { stat.textContent = 'Password must be at least 8 characters'; return; }
+  if (pw1 !== pw2)       { stat.textContent = 'New passwords do not match'; return; }
+  stat.textContent = 'Saving…';
+  try {
+    const r = await fetch('/api/settings/password', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({current_password: cur, new_password: pw1, confirm_password: pw2}),
+    });
+    if (!r.ok) {
+      let msg = 'Error';
+      try { const j = await r.json(); msg = j.detail || msg; } catch {}
+      stat.textContent = msg;
+      return;
+    }
+    document.getElementById('pwd-form').reset();
+    stat.textContent = 'Password updated ✓';
+    setTimeout(() => { stat.textContent = ''; }, 2500);
+  } catch {
+    stat.textContent = 'Network error';
+  }
 }
 
 // ── Schedule ──────────────────────────────────────────────────────────────────

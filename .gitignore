@@ -8,3 +8,4 @@ __pycache__/
 output_*.txt
 config.toml
 .pytest_cache/
+data/auth.toml
