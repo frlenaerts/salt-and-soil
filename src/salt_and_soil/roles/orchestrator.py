@@ -43,6 +43,8 @@ class OrchestratorRuntime:
         self._mount_info: dict | None = None
         self._error: str = ""
         self._last_scan_at: str | None = None
+        self._cancel_requested: bool = False
+        self._current_executor: SyncExecutor | None = None
 
         # NFS mount for the local NAS
         self.nfs = NFSMount(
@@ -293,6 +295,7 @@ class OrchestratorRuntime:
 
     async def run_sync(self, actions: list[ActionItem], rescan_after: bool = True):
         _did_mount = False
+        self._cancel_requested = False
         try:
             self.status = AppStatus.MOUNTING
             await self._do_mount_all()
@@ -324,8 +327,12 @@ class OrchestratorRuntime:
                 remote_name  = agent_cfg.name,
                 exclude_file = self.cfg.sync.exclude_file,
             )
+            self._current_executor = executor
 
+            completed = []
             for job in to_do:
+                if self._cancel_requested:
+                    break
                 icon = {
                     SyncAction.SYNC:          "↑",
                     SyncAction.PULL:          "↓",
@@ -334,12 +341,19 @@ class OrchestratorRuntime:
                 self._info(f"[{self._node}] {icon} {job.sync_root}/{job.folder}")
                 async for line in executor.execute(job):
                     self._append_log(f"{self._ts()} - [{self._node}]    {line}")
+                completed.append(job)
+
+            self._current_executor = None
 
             state = self.repo.load_state(self.cfg.app.node_name, self.cfg.app.role.value)
             state.last_sync_at = utc_now_iso()
-            state.jobs.extend(to_do)
+            state.jobs.extend(completed)
             self.repo.save_state(state)
-            self._info(f"[{self._node}] Sync complete")
+
+            if self._cancel_requested:
+                self._info(f"[{self._node}] Sync cancelled — rescanning to refresh folder status")
+            else:
+                self._info(f"[{self._node}] Sync complete")
 
             if rescan_after:
                 await self._do_scan_and_compare()
@@ -352,8 +366,22 @@ class OrchestratorRuntime:
             self._err(str(e))
             self.status = AppStatus.ERROR
         finally:
+            self._current_executor = None
             if _did_mount:
                 await self._do_unmount_all()
+
+    async def request_cancel(self) -> bool:
+        """Request cancellation of an in-progress sync. Terminates the current
+        rsync subprocess and breaks out of the job loop; run_sync then rescans
+        to refresh folder state. No-op if not currently syncing."""
+        if self.status != AppStatus.SYNCING or self._cancel_requested:
+            return False
+        self._cancel_requested = True
+        self._info(f"[{self._node}] ✕ Cancel requested — stopping current transfer")
+        ex = self._current_executor
+        if ex is not None:
+            ex.cancel()
+        return True
 
     async def do_unmount(self):
         try:

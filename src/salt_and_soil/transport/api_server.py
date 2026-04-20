@@ -166,6 +166,13 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
         rt.reset()
         return {"ok": True}
 
+    @app.post("/api/cancel")
+    async def cancel():
+        if rt.status != AppStatus.SYNCING:
+            raise HTTPException(400, "No sync in progress")
+        ok = await rt.request_cancel()
+        return {"ok": ok}
+
     @app.get("/api/snapshots")
     async def list_snapshots():
         return rt.repo.list_snapshots()

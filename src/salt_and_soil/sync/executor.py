@@ -30,6 +30,20 @@ class SyncExecutor:
         self.ssh_key_file = ssh_key_file
         self.remote_name  = remote_name
         self.exclude_file = exclude_file
+        self._current_proc: asyncio.subprocess.Process | None = None
+        self.cancelled: bool = False
+
+    def cancel(self) -> None:
+        """Mark executor as cancelled and terminate any running subprocess.
+        Safe to call from another task; the running _rsync loop will observe
+        EOF on stdout as the process exits."""
+        self.cancelled = True
+        proc = self._current_proc
+        if proc is not None:
+            try:
+                proc.terminate()
+            except ProcessLookupError:
+                pass
 
     @property
     def _ssh_opts(self) -> str:
@@ -52,7 +66,11 @@ class SyncExecutor:
             elif job.action == SyncAction.DELETE_REMOTE:
                 async for line in self._delete_remote(job):
                     yield line
-            job.status      = JobStatus.DONE
+            if self.cancelled:
+                job.status = JobStatus.FAILED
+                job.error  = "cancelled"
+            else:
+                job.status = JobStatus.DONE
             job.finished_at = utc_now_iso()
         except Exception as e:
             job.status      = JobStatus.FAILED
@@ -76,6 +94,7 @@ class SyncExecutor:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
+        self._current_proc = proc
         current_file: str | None = None
         buf = ""
         while True:
@@ -105,6 +124,9 @@ class SyncExecutor:
                     yield line
                     current_file = None
         await proc.wait()
+        self._current_proc = None
+        if self.cancelled:
+            return
         if proc.returncode != 0:
             raise RuntimeError(f"rsync exit {proc.returncode}")
 

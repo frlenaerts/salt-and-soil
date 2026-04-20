@@ -158,6 +158,8 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
 .btn-outline:hover:not(:disabled) { border-color: var(--teal); color: var(--teal); background: var(--teal-light); }
 .btn-execute  { background: var(--teal); color: #fff; font-size: 14px; font-weight: 600; padding: 11px 26px; }
 .btn-execute:hover:not(:disabled) { background: var(--teal-dark); }
+.btn-cancel   { background: var(--red); color: #fff; font-size: 14px; font-weight: 600; padding: 11px 26px; }
+.btn-cancel:hover:not(:disabled) { filter: brightness(0.92); }
 
 /* ── Action row ── */
 .action-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
@@ -630,6 +632,8 @@ function updateExecuteButton() {
   if (!btn) return;
   const hasWork = Object.values(actions).some(a => a !== 'skip');
   btn.disabled = status !== 'ready' || !hasWork;
+  const cancel = document.getElementById('btn-cancel');
+  if (cancel) cancel.style.display = status === 'syncing' ? '' : 'none';
 }
 
 // ── Log ───────────────────────────────────────────────────────────────────────
@@ -731,10 +735,16 @@ function renderFolders() {
   footer.className = 'exec-footer'; footer.id = 'exec-footer';
   footer.innerHTML = `
     <div class="exec-stats" id="exec-stats"></div>
-    <button class="btn btn-execute" id="btn-execute"
-      onclick="doExecute()" ${status!=='ready'?'disabled':''}>
-      ↑ &nbsp;Execute
-    </button>`;
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-cancel" id="btn-cancel"
+        onclick="doCancel()" style="display:none">
+        ✕ &nbsp;Cancel
+      </button>
+      <button class="btn btn-execute" id="btn-execute"
+        onclick="doExecute()" ${status!=='ready'?'disabled':''}>
+        ↑ &nbsp;Execute
+      </button>
+    </div>`;
   area.appendChild(footer);
   updateStats();
 }
@@ -775,6 +785,13 @@ function doExecute() {
   setStatus('syncing');
   document.getElementById('btn-execute').disabled = true;
   syncInitiated = true;
+}
+
+function doCancel() {
+  if (!confirm('Cancel the running sync?\n\nThe current file transfer will stop, and a scan will run afterwards to refresh folder status.')) return;
+  const btn = document.getElementById('btn-cancel');
+  if (btn) btn.disabled = true;
+  fetch('/api/cancel', {method:'POST'}).catch(() => {});
 }
 
 function onDone() {
