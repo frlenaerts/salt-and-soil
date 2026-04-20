@@ -813,7 +813,7 @@ function doExecute() {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({actions: payload}),
   });
-  setStatus('syncing');
+  setStatus('mounting');
   document.getElementById('btn-execute').disabled = true;
   syncInitiated = true;
 }
