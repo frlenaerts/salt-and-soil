@@ -19,6 +19,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from ..config.models import Config
+from ..schedule.models import Schedule
 from ..shared.enums import AppStatus, NodeRole
 from ..shared.paths import human_size
 from .dtos import ExecuteRequest, MountResponse, StatusResponse, ListDirsResponse
@@ -60,10 +61,15 @@ def create_app(cfg: Config, runtime) -> FastAPI:
         except (NotImplementedError, RuntimeError):
             pass  # Windows / edge cases
 
+        if hasattr(runtime, "start_schedule_loop"):
+            await runtime.start_schedule_loop()
+
         try:
             yield
         finally:
             _running = False
+            if hasattr(runtime, "stop_schedule_loop"):
+                await runtime.stop_schedule_loop()
 
     app = FastAPI(title="Salt & Soil", lifespan=lifespan)
 
@@ -134,6 +140,7 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
                             "mount":        snap.get("mount"),
                             "error":        snap.get("error"),
                             "last_scan_at": snap.get("last_scan_at"),
+                            "schedule":     snap.get("schedule"),
                         }
                         yield f"data: {json.dumps(payload)}\n\n"
                         sent_total  = cur_total
@@ -162,6 +169,34 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
     @app.get("/api/snapshots")
     async def list_snapshots():
         return rt.repo.list_snapshots()
+
+    @app.get("/api/time")
+    async def get_time():
+        from datetime import datetime
+        return {"now": datetime.now().strftime("%d/%m/%Y %H:%M")}
+
+    @app.get("/api/schedule")
+    async def get_schedule():
+        return rt.get_schedule().to_dict()
+
+    @app.post("/api/schedule")
+    async def post_schedule(request: Request):
+        body = await request.json()
+        try:
+            enabled = bool(body.get("enabled", False))
+            days    = sorted({int(d) for d in body.get("days", [])})
+            hour    = int(body.get("hour", 0))
+            minute  = int(body.get("minute", 0))
+        except (TypeError, ValueError):
+            raise HTTPException(400, "Invalid schedule payload")
+        if any(d < 0 or d > 6 for d in days):
+            raise HTTPException(400, "days must be in 0..6")
+        if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+            raise HTTPException(400, "hour must be 0..23, minute must be 0..59")
+        if enabled and not days:
+            raise HTTPException(400, "Enable at least one weekday")
+        rt.save_schedule(Schedule(enabled=enabled, days=days, hour=hour, minute=minute))
+        return rt.get_schedule().to_dict()
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -7,11 +7,16 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from pathlib import Path
+
 from ..config.models import Config
 from ..mounts.nfs import NFSMount
 from ..mounts.checks import assert_mount_ok, MountCheckError, is_path_empty
 from ..scanner.scanner import DirScanner
 from ..scanner.models import ScanSnapshot
+from ..schedule.models import Schedule
+from ..schedule.store import ScheduleStore
+from ..schedule.loop import ScheduleLoop
 from ..state.repository import StateRepository
 from ..state.models import FolderDiff
 from ..sync.comparer import compare
@@ -64,6 +69,12 @@ class OrchestratorRuntime:
             for a in cfg.agents
         ]
 
+        # Schedule: in-memory copy backed by schedule.json next to state.json
+        schedule_file = str(Path(cfg.state.state_file).parent / "schedule.json")
+        self._schedule_store = ScheduleStore(schedule_file)
+        self._schedule       = self._schedule_store.load()
+        self._schedule_loop  = ScheduleLoop(self)
+
     # ── Logging ───────────────────────────────────────────────────────────────
 
     @property
@@ -110,7 +121,51 @@ class OrchestratorRuntime:
             "mount":        self._mount_info,
             "error":        self._error,
             "last_scan_at": self._last_scan_at,
+            "schedule":     self._schedule.to_dict(),
         }
+
+    # ── Schedule ──────────────────────────────────────────────────────────────
+
+    def get_schedule(self) -> Schedule:
+        return self._schedule
+
+    def save_schedule(self, s: Schedule) -> None:
+        self._schedule = s
+        self._schedule_store.save(s)
+
+    async def start_schedule_loop(self) -> None:
+        self._schedule_loop.start()
+
+    async def stop_schedule_loop(self) -> None:
+        await self._schedule_loop.stop()
+
+    async def run_scheduled_cycle(self) -> None:
+        """
+        Scheduled trigger: full scan, then auto-sync every folder whose
+        diff_status is needs_sync. Every other folder is explicitly marked
+        SKIP — the comparer sets planned_action=SYNC for local_only, and
+        run_sync only overrides actions it receives, so skipping needs to
+        be stated explicitly for those folders.
+        """
+        self._error = ""
+        self._info(f"[{self._node}] ⏰ Scheduled run starting")
+        await self.run_scan()
+        if self.status != AppStatus.READY:
+            return
+        actions = [
+            ActionItem(
+                sync_root = d.sync_root,
+                folder    = d.name,
+                action    = SyncAction.SYNC if d.diff_status == DiffStatus.NEEDS_SYNC else SyncAction.SKIP,
+            )
+            for d in self._diffs
+        ]
+        to_sync = sum(1 for a in actions if a.action == SyncAction.SYNC)
+        if not to_sync:
+            self._info(f"[{self._node}] ⏰ Scheduled run — nothing to sync")
+            return
+        self._info(f"[{self._node}] ⏰ Scheduled run — {to_sync} folder(s) to sync")
+        await self.run_sync(actions)
 
     # ── Main flow ─────────────────────────────────────────────────────────────
 
