@@ -110,14 +110,15 @@ header {
 .sched-form.disabled .sched-days,
 .sched-form.disabled .sched-presets,
 .sched-form.disabled .sched-time-row { opacity: .35; pointer-events: none; }
-.sched-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 2px; }
+.sched-presets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 2px; }
 .sched-preset-btn {
-  font-family: var(--sans); font-size: 11px; font-weight: 500;
-  padding: 4px 10px; border-radius: 14px;
+  font-family: var(--sans); font-size: 12px; font-weight: 400;
+  padding: 6px 12px; border-radius: 20px;
   background: transparent; border: 1px solid var(--border-mid); color: var(--text-mid);
-  cursor: pointer; transition: all .12s;
+  cursor: pointer; transition: all .12s; user-select: none;
 }
 .sched-preset-btn:hover { border-color: var(--teal); color: var(--teal); }
+.sched-preset-btn.active { background: var(--teal-light); border-color: var(--teal); color: var(--teal-dark); }
 
 /* ── Layout ── */
 main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
@@ -393,10 +394,10 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
         <div class="sched-row">
           <span class="sched-label">Days</span>
           <div class="sched-presets">
-            <button type="button" class="sched-preset-btn" onclick="applyPreset('daily')">Daily</button>
-            <button type="button" class="sched-preset-btn" onclick="applyPreset('weekdays')">Weekdays</button>
-            <button type="button" class="sched-preset-btn" onclick="applyPreset('weekend')">Weekend</button>
-            <button type="button" class="sched-preset-btn" onclick="applyPreset('clear')">Clear</button>
+            <button type="button" class="sched-preset-btn" data-preset="daily"    onclick="applyPreset('daily')">Daily</button>
+            <button type="button" class="sched-preset-btn" data-preset="weekdays" onclick="applyPreset('weekdays')">Weekdays</button>
+            <button type="button" class="sched-preset-btn" data-preset="weekend"  onclick="applyPreset('weekend')">Weekend</button>
+            <button type="button" class="sched-preset-btn" data-preset="clear"    onclick="applyPreset('clear')">Clear</button>
           </div>
           <div class="sched-days" id="sched-days">
             <label class="sched-day-btn"><input type="checkbox" value="0">Mon</label>
@@ -488,14 +489,35 @@ function applyPreset(name) {
     cb.checked = days.includes(parseInt(cb.value, 10));
     cb.parentElement.classList.toggle('active', cb.checked);
   });
+  updatePresetHighlights();
+}
+
+function currentSelectedDays() {
+  return [...document.querySelectorAll('#sched-days input[type=checkbox]:checked')]
+    .map(cb => parseInt(cb.value, 10));
+}
+
+function presetKey(days) {
+  const sorted = [...days].sort((a,b)=>a-b).join(',');
+  if (sorted === '0,1,2,3,4,5,6') return 'daily';
+  if (sorted === '0,1,2,3,4')     return 'weekdays';
+  if (sorted === '5,6')           return 'weekend';
+  return null;
 }
 
 function presetLabel(days) {
-  const sorted = [...days].sort((a,b)=>a-b).join(',');
-  if (sorted === '0,1,2,3,4,5,6') return 'Daily';
-  if (sorted === '0,1,2,3,4')     return 'Weekdays';
-  if (sorted === '5,6')           return 'Weekend';
+  const key = presetKey(days);
+  if (key === 'daily')    return 'Daily';
+  if (key === 'weekdays') return 'Weekdays';
+  if (key === 'weekend')  return 'Weekend';
   return null;
+}
+
+function updatePresetHighlights() {
+  const active = presetKey(currentSelectedDays());
+  document.querySelectorAll('.sched-preset-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.preset === active);
+  });
 }
 
 function applyScheduleToUI(s) {
@@ -510,6 +532,7 @@ function applyScheduleToUI(s) {
   const mm = String(s.minute ?? 0).padStart(2, '0');
   document.getElementById('sched-time').value = `${hh}:${mm}`;
   toggleScheduleFormDisabled();
+  updatePresetHighlights();
   updateScheduleChip(s);
 }
 
@@ -769,7 +792,10 @@ function showBanner(type, msg) {
 document.querySelectorAll('input[name="sched-mode"]').forEach(r =>
   r.addEventListener('change', toggleScheduleFormDisabled));
 document.querySelectorAll('#sched-days input[type=checkbox]').forEach(cb =>
-  cb.addEventListener('change', () => cb.parentElement.classList.toggle('active', cb.checked)));
+  cb.addEventListener('change', () => {
+    cb.parentElement.classList.toggle('active', cb.checked);
+    updatePresetHighlights();
+  }));
 
 // ── Server clock (container time, refreshed every 30s) ────────────────────────
 async function refreshServerClock() {
