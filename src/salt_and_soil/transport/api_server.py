@@ -141,6 +141,7 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
                             "error":        snap.get("error"),
                             "last_scan_at": snap.get("last_scan_at"),
                             "schedule":     snap.get("schedule"),
+                            "cancelled":    snap.get("cancelled", False),
                         }
                         yield f"data: {json.dumps(payload)}\n\n"
                         sent_total  = cur_total

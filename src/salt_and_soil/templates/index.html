@@ -618,7 +618,11 @@ function connectSSE() {
     if (d.schedule)         updateScheduleChip(d.schedule);
     if (d.status === 'ready' && syncInitiated) {
       syncInitiated = false;
-      showBanner('done', '✓ Sync complete — NAS devices can go to sleep now 🛌');
+      if (d.cancelled) {
+        showBanner('error', '✕ Sync cancelled — folder status refreshed');
+      } else {
+        showBanner('done', '✓ Sync complete — NAS devices can go to sleep now 🛌');
+      }
       closeSse();
     }
     if (d.status === 'done')  { onDone(); closeSse(); }

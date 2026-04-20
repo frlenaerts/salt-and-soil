@@ -111,6 +111,7 @@ class OrchestratorRuntime:
         self._diffs      = []
         self._mount_info = None
         self._error      = ""
+        self._cancel_requested = False
 
     def clear_log(self):
         """Clear log history without touching status or diffs. Keeps log_total
@@ -129,6 +130,7 @@ class OrchestratorRuntime:
             "error":        self._error,
             "last_scan_at": self._last_scan_at,
             "schedule":     self._schedule.to_dict(),
+            "cancelled":    self._cancel_requested,
         }
 
     # ── Schedule ──────────────────────────────────────────────────────────────
@@ -284,6 +286,7 @@ class OrchestratorRuntime:
 
     async def run_scan(self):
         self.status = AppStatus.MOUNTING
+        self._cancel_requested = False
         _did_mount  = False
         try:
             await self._do_mount_all()
