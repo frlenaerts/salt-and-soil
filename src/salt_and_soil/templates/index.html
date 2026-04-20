@@ -881,19 +881,37 @@ function updateStats() {
 }
 
 // ── Execute ───────────────────────────────────────────────────────────────────
-function doExecute() {
+async function doExecute() {
   const payload = diffs.map(d => ({
     sync_root: d.sync_root, folder: d.name,
     action: actions[key(d)] || 'skip',
   }));
-  connectSSE();
-  fetch('/api/execute', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({actions: payload}),
-  });
   setStatus('mounting');
   document.getElementById('btn-execute').disabled = true;
+  // Await the POST so the server state is SYNCING before we open SSE — otherwise
+  // the first SSE frame can arrive with the stale pre-execute status=ready and
+  // instantly fire the "sync complete" banner.
+  let r;
+  try {
+    r = await fetch('/api/execute', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({actions: payload}),
+    });
+  } catch {
+    showBanner('error', '⚠ Network error starting sync');
+    const s = await fetch('/api/state').then(x => x.json()).catch(() => null);
+    if (s) setStatus(s.status);
+    return;
+  }
+  if (!r.ok) {
+    const msg = await r.text().catch(() => 'Execute failed');
+    showBanner('error', '⚠ ' + msg);
+    const s = await fetch('/api/state').then(x => x.json()).catch(() => null);
+    if (s) setStatus(s.status);
+    return;
+  }
   syncInitiated = true;
+  connectSSE();
 }
 
 function doCancel() {
