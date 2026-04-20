@@ -14,7 +14,7 @@ import signal
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, BackgroundTasks, Request, HTTPException
+from fastapi import FastAPI, BackgroundTasks, Request, HTTPException, Depends, Header
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
@@ -217,8 +217,21 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _register_agent_routes(app: FastAPI, cfg: Config, rt):
+    expected_key = cfg.auth.api_key
+    if not expected_key:
+        log.warning("Agent running WITHOUT api_key — /mount /unmount /list /status are unprotected")
 
-    @app.post("/mount")
+    def require_api_key(x_api_key: str | None = Header(default=None)):
+        """Reject request if X-Api-Key header is missing or doesn't match
+        auth.api_key. Empty config value disables the check (legacy behaviour)."""
+        if not expected_key:
+            return
+        if not x_api_key or x_api_key != expected_key:
+            raise HTTPException(status_code=401, detail="Invalid or missing X-Api-Key")
+
+    protected = [Depends(require_api_key)]
+
+    @app.post("/mount", dependencies=protected)
     async def mount():
         info = await rt.nfs.mount()
         return JSONResponse(MountResponse(
@@ -230,7 +243,7 @@ def _register_agent_routes(app: FastAPI, cfg: Config, rt):
             free_bytes  = info.free_bytes,
         ).to_dict())
 
-    @app.post("/unmount")
+    @app.post("/unmount", dependencies=protected)
     async def unmount():
         ok = await rt.nfs.unmount()
         return JSONResponse(MountResponse(
@@ -238,7 +251,7 @@ def _register_agent_routes(app: FastAPI, cfg: Config, rt):
             msg="Unmounted" if ok else "Error",
         ).to_dict())
 
-    @app.get("/status")
+    @app.get("/status", dependencies=protected)
     async def status():
         info = await rt.nfs.info()
         return JSONResponse(StatusResponse(
@@ -252,7 +265,7 @@ def _register_agent_routes(app: FastAPI, cfg: Config, rt):
             error       = info.error,
         ).to_dict())
 
-    @app.get("/list")
+    @app.get("/list", dependencies=protected)
     async def list_dirs(root: str = "videos"):
         if root not in cfg.sync.sync_roots:
             raise HTTPException(400, f"Sync root '{root}' not allowed")

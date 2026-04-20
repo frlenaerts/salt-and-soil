@@ -16,7 +16,7 @@ except ImportError:
         raise ImportError("Install 'tomli' for Python < 3.11:  pip install tomli")
 
 from .models import (
-    AppConfig, ServerConfig,
+    AppConfig, ServerConfig, AuthConfig,
     MountConfig, SyncConfig, StateConfig, AgentConfig, Config,
 )
 from ..shared.enums import NodeRole, CompareMode
@@ -100,6 +100,9 @@ def load(path: str | Path | None = None) -> Config:
         snapshot_dir = state_raw.get("snapshot_dir", "./data/state/snapshots"),
     )
 
+    auth_raw = raw.get("auth", {})
+    auth = AuthConfig(api_key = auth_raw.get("api_key", ""))
+
     agents = []
     for a in raw.get("agents", []):
         agents.append(AgentConfig(
@@ -120,5 +123,6 @@ def load(path: str | Path | None = None) -> Config:
         mount  = mount,
         sync   = sync,
         state  = state,
+        auth   = auth,
         agents = agents,
     )

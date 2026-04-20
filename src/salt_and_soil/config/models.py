@@ -61,10 +61,18 @@ class AgentConfig:
 
 
 @dataclass
+class AuthConfig:
+    """Agent-side: expected X-Api-Key for incoming requests.
+    Empty string means no auth enforced (matches legacy behaviour)."""
+    api_key: str = ""
+
+
+@dataclass
 class Config:
     app: AppConfig
     server: ServerConfig
     mount: MountConfig
     sync: SyncConfig
     state: StateConfig
+    auth: AuthConfig = field(default_factory=AuthConfig)
     agents: list[AgentConfig] = field(default_factory=list)
