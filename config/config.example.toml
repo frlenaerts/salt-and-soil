@@ -12,6 +12,13 @@ log_level = "INFO"            # DEBUG | INFO | WARNING | ERROR
 host = "0.0.0.0"
 port = 8080
 
+# Auth
+# On an agent node: the key that incoming requests must carry in X-Api-Key.
+# On an orchestrator node: this section is unused — set the per-agent key
+# in [[agents]] api_key instead. Same string on both sides.
+[auth]
+api_key = ""
+
 # Local NAS mount (the NAS on the same network as this node)
 [mount]
 enabled           = true
@@ -43,7 +50,7 @@ snapshot_dir = "./data/state/snapshots"
 name              = "agent-01"
 host              = "10.0.0.2"            # IP of the agent node (API calls)
 port              = 8080                  # free to choose — must match agent's [server] port
-api_key           = ""                    # optional
+api_key           = ""                    # must match the agent's [auth] api_key
 ssh_host          = "10.0.0.2"            # IP for rsync over SSH
 ssh_user          = "root"
 ssh_key_file      = "/root/.ssh/saltsoil_key"
