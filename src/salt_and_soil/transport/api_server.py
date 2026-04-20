@@ -173,7 +173,7 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
     @app.get("/api/time")
     async def get_time():
         from datetime import datetime
-        return {"now": datetime.now().strftime("%d/%m/%Y %H:%M:%S")}
+        return {"now": datetime.now().strftime("%d/%m/%Y %H:%M")}
 
     @app.get("/api/schedule")
     async def get_schedule():
