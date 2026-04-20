@@ -426,7 +426,7 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
     <div class="card">
       <div class="card-head">
         <span class="card-title">Log</span>
-        <button class="btn btn-outline" style="padding:4px 10px;font-size:11px" onclick="document.getElementById('log-box').innerHTML=''">Clear</button>
+        <button class="btn btn-outline" style="padding:4px 10px;font-size:11px" onclick="clearLog()">Clear</button>
       </div>
       <div class="log-box" id="log-box"><span style="color:var(--text-dim)">Ready to start.</span></div>
     </div>
@@ -638,6 +638,10 @@ function updateExecuteButton() {
 
 // ── Log ───────────────────────────────────────────────────────────────────────
 const LOG_CAP = 500;
+function clearLog() {
+  fetch('/api/log/clear', {method:'POST'}).catch(() => {});
+  document.getElementById('log-box').innerHTML = '<span style="color:var(--text-dim)">Ready to start.</span>';
+}
 function appendLog(lines) {
   const box = document.getElementById('log-box');
   if (lines.length && box.querySelector('span')) box.innerHTML = '';

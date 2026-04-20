@@ -112,6 +112,11 @@ class OrchestratorRuntime:
         self._mount_info = None
         self._error      = ""
 
+    def clear_log(self):
+        """Clear log history without touching status or diffs. Keeps log_total
+        so SSE clients don't see a bogus positive delta on the next line."""
+        self._log = []
+
     # ── UI snapshot ───────────────────────────────────────────────────────────
 
     def snapshot_for_ui(self) -> dict[str, Any]:

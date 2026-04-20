@@ -173,6 +173,11 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
         ok = await rt.request_cancel()
         return {"ok": ok}
 
+    @app.post("/api/log/clear")
+    async def clear_log():
+        rt.clear_log()
+        return {"ok": True}
+
     @app.get("/api/snapshots")
     async def list_snapshots():
         return rt.repo.list_snapshots()
