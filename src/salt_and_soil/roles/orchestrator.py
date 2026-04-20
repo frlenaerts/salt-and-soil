@@ -142,8 +142,10 @@ class OrchestratorRuntime:
     async def run_scheduled_cycle(self) -> None:
         """
         Scheduled trigger: full scan, then auto-sync every folder whose
-        diff_status is needs_sync. Mount/unmount is handled inside
-        run_scan and run_sync. Any other diff statuses are left alone.
+        diff_status is needs_sync. Every other folder is explicitly marked
+        SKIP — the comparer sets planned_action=SYNC for local_only, and
+        run_sync only overrides actions it receives, so skipping needs to
+        be stated explicitly for those folders.
         """
         self._error = ""
         self._info(f"[{self._node}] ⏰ Scheduled run starting")
@@ -154,15 +156,15 @@ class OrchestratorRuntime:
             ActionItem(
                 sync_root = d.sync_root,
                 folder    = d.name,
-                action    = SyncAction.SYNC,
+                action    = SyncAction.SYNC if d.diff_status == DiffStatus.NEEDS_SYNC else SyncAction.SKIP,
             )
             for d in self._diffs
-            if d.diff_status == DiffStatus.NEEDS_SYNC
         ]
-        if not actions:
+        to_sync = sum(1 for a in actions if a.action == SyncAction.SYNC)
+        if not to_sync:
             self._info(f"[{self._node}] ⏰ Scheduled run — nothing to sync")
             return
-        self._info(f"[{self._node}] ⏰ Scheduled run — {len(actions)} folder(s) to sync")
+        self._info(f"[{self._node}] ⏰ Scheduled run — {to_sync} folder(s) to sync")
         await self.run_sync(actions)
 
     # ── Main flow ─────────────────────────────────────────────────────────────
