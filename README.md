@@ -273,9 +273,17 @@ source .venv/bin/activate
 PYTHONPATH=src python -m salt_and_soil serve
 ```
 
-Open the web UI at `http://<container-ip>:<port>` (default port 8080).
+Open the web UI at `http://<container-ip>:<port>` (default port 8080, configurable under `[server]` in `config.toml`).
 
 The agent runs the same command on its container — it exposes a REST API, no UI.
+
+### First-run setup
+
+On first visit the orchestrator redirects to `/setup` to create the single user account (username + password, minimum 8 characters). After that, access to the UI and `/api/*` requires a signed session cookie issued by `/login`. The "Remember me" checkbox extends the cookie lifetime to 30 days.
+
+Passwords are hashed with **argon2** and the session-signing secret is rotated on every password change. Repeated failed logins are throttled: **5 failures** lock new attempts for **15 minutes**.
+
+Auth state lives in `./data/auth.toml` — delete that file to start over.
 
 ### Production (systemd service)
 
@@ -292,6 +300,14 @@ systemctl status salt-and-soil
 systemctl restart salt-and-soil
 journalctl -u salt-and-soil -f
 ```
+
+---
+
+## Scheduled scans
+
+The **Schedule** tab in the UI lets you trigger automatic scans on selected days of the week at a fixed time (24h clock). Pick specific days, use the `Daily` / `Weekdays` / `Weekend` presets, or toggle the whole schedule off. When enabled, the header shows a small clock-chip with the next fire time.
+
+A scheduled run behaves exactly like pressing **Start Scan** manually — it mounts, scans, presents the diff, and waits for you to press **Execute**. It does not auto-sync.
 
 ---
 
