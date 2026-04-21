@@ -18,8 +18,10 @@ from fastapi import FastAPI, BackgroundTasks, Request, HTTPException, Depends, H
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
+import math
+
 from ..auth import (
-    AuthStore, hash_password, verify_password,
+    AuthStore, LoginThrottle, hash_password, verify_password,
     make_session_token, verify_session_token,
 )
 from ..auth.password import MIN_PASSWORD_LENGTH
@@ -94,8 +96,9 @@ def create_app(cfg: Config, runtime) -> FastAPI:
 def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
     templates = Jinja2Templates(directory=str(_TMPL_DIR))
 
-    auth_path  = Path(cfg.app.data_dir) / "auth.toml"
-    auth_store = AuthStore(auth_path)
+    auth_path     = Path(cfg.app.data_dir) / "auth.toml"
+    auth_store    = AuthStore(auth_path)
+    login_throttle = LoginThrottle()
 
     PUBLIC_PATHS = {"/login", "/logout", "/setup"}
 
@@ -201,6 +204,11 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
             "request": request, "title": "Sign in", "error": None, "username": "",
         })
 
+    def _lockout_error(seconds: float) -> str:
+        mins = max(1, math.ceil(seconds / 60))
+        unit = "minute" if mins == 1 else "minutes"
+        return f"Too many failed attempts. Try again in {mins} {unit}."
+
     @app.post("/login", response_class=HTMLResponse)
     async def login_post(
         request: Request,
@@ -212,6 +220,15 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
             return RedirectResponse("/setup", status_code=303)
 
         uname = username.strip()
+
+        remaining = login_throttle.seconds_remaining()
+        if remaining > 0:
+            return templates.TemplateResponse("login.html", {
+                "request":  request, "title": "Sign in",
+                "error":    _lockout_error(remaining),
+                "username": uname,
+            }, status_code=429)
+
         try:
             user = auth_store.load()
         except Exception:
@@ -219,12 +236,15 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
 
         ok = bool(user and uname == user.username and verify_password(password, user.password_hash))
         if not ok:
+            lockout = login_throttle.record_failure()
+            error   = _lockout_error(lockout) if lockout > 0 else "Invalid username or password."
             return templates.TemplateResponse("login.html", {
                 "request":  request, "title": "Sign in",
-                "error":    "Invalid username or password.",
+                "error":    error,
                 "username": uname,
-            }, status_code=401)
+            }, status_code=429 if lockout > 0 else 401)
 
+        login_throttle.record_success()
         resp = RedirectResponse("/", status_code=303)
         _issue_session_cookie(resp, uname, remember=bool(remember))
         return resp

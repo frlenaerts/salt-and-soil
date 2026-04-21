@@ -10,6 +10,7 @@ import pytest
 from salt_and_soil.auth.password import hash_password, verify_password, MIN_PASSWORD_LENGTH
 from salt_and_soil.auth.store import AuthStore
 from salt_and_soil.auth.session import make_session_token, verify_session_token
+from salt_and_soil.auth.throttle import LoginThrottle
 
 
 def test_hash_then_verify_roundtrip():
@@ -79,6 +80,47 @@ def test_session_token_rejects_wrong_secret():
 
 def test_session_token_rejects_garbage():
     assert verify_session_token("a" * 64, "garbage.token.data", max_age=60) is None
+
+
+def test_throttle_unlocked_by_default():
+    t = LoginThrottle()
+    assert t.seconds_remaining() == 0.0
+
+
+def test_throttle_locks_after_max_failures():
+    t = LoginThrottle(max_failures=3, lockout_seconds=900)
+    assert t.record_failure() == 0.0   # 1st
+    assert t.record_failure() == 0.0   # 2nd
+    remaining = t.record_failure()     # 3rd → locks
+    assert remaining == 900
+    assert t.seconds_remaining() > 0
+
+
+def test_throttle_success_resets_counter():
+    t = LoginThrottle(max_failures=3, lockout_seconds=900)
+    t.record_failure()
+    t.record_failure()
+    t.record_success()
+    # After reset, two more failures should NOT trigger lockout (counter restarted).
+    assert t.record_failure() == 0.0
+    assert t.record_failure() == 0.0
+    assert t.seconds_remaining() == 0.0
+
+
+def test_throttle_unlocks_after_timeout(monkeypatch):
+    import salt_and_soil.auth.throttle as throttle_mod
+    fake_now = [1000.0]
+    monkeypatch.setattr(throttle_mod.time, "monotonic", lambda: fake_now[0])
+
+    t = LoginThrottle(max_failures=2, lockout_seconds=60)
+    t.record_failure()
+    t.record_failure()
+    assert t.seconds_remaining() == 60.0
+
+    fake_now[0] += 61
+    assert t.seconds_remaining() == 0.0
+    # Counter should also reset after lockout expires — next failure starts fresh.
+    assert t.record_failure() == 0.0
 
 
 def test_session_token_respects_max_age(monkeypatch):
