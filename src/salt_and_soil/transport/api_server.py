@@ -15,7 +15,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, BackgroundTasks, Request, HTTPException, Depends, Header, Form
-from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, RedirectResponse, Response, FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 import math
@@ -34,8 +35,9 @@ from .dtos import ExecuteRequest, MountResponse, StatusResponse, ListDirsRespons
 
 log = logging.getLogger("salt-and-soil")
 
-_TMPL_DIR = Path(__file__).parent.parent / "templates"
-_running  = True   # set to False in lifespan shutdown so SSE generators exit
+_TMPL_DIR   = Path(__file__).parent.parent / "templates"
+_STATIC_DIR = Path(__file__).parent.parent / "static"
+_running    = True   # set to False in lifespan shutdown so SSE generators exit
 
 
 def create_app(cfg: Config, runtime) -> FastAPI:
@@ -120,10 +122,16 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
     auth_store    = AuthStore(auth_path)
     login_throttle = LoginThrottle()
 
-    PUBLIC_PATHS = {"/login", "/logout", "/setup"}
+    PUBLIC_PATHS = {"/login", "/logout", "/setup", "/favicon.ico"}
 
     def _is_public(path: str) -> bool:
-        return path in PUBLIC_PATHS
+        return path in PUBLIC_PATHS or path.startswith("/static/")
+
+    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon():
+        return FileResponse(_STATIC_DIR / "favicon.ico")
 
     def _authenticated_user(request: Request) -> str | None:
         if not auth_store.exists():

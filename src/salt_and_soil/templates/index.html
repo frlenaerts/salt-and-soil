@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Salt &amp; Soil</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="manifest" href="/static/site.webmanifest">
+<meta name="theme-color" content="#1ABFBA">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -46,12 +51,11 @@ header {
 }
 .logo { display: flex; align-items: center; gap: 10px; }
 .logo-mark {
-  width: 34px; height: 34px;
-  background: var(--teal);
-  border-radius: 9px;
+  width: 34px; height: 34px; border-radius: 9px;
   display: flex; align-items: center; justify-content: center;
-  font-weight: 700; font-size: 13px; color: #fff; letter-spacing: -.5px;
+  overflow: hidden;
 }
+.logo-mark img { width: 100%; height: 100%; object-fit: contain; }
 .logo-text { font-weight: 600; font-size: 16px; letter-spacing: -.3px; }
 .logo-node { font-size: 11px; color: var(--text-dim); margin-top: 1px; }
 
@@ -338,7 +342,7 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
 
 <header>
   <div class="logo">
-    <div class="logo-mark">S&amp;S</div>
+    <div class="logo-mark"><img src="/static/logo.png" alt="Salt &amp; Soil"></div>
     <div>
       <div class="logo-text">Salt &amp; Soil</div>
       <div class="logo-node" id="node-label">Orchestrator</div>
