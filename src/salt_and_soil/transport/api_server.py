@@ -39,6 +39,22 @@ _running  = True   # set to False in lifespan shutdown so SSE generators exit
 
 
 def create_app(cfg: Config, runtime) -> FastAPI:
+    # Suppress CancelledError tracebacks that uvicorn logs during shutdown —
+    # these come from Starlette's StreamingResponse (SSE) and lifespan task
+    # groups being cancelled by Ctrl+C, which is expected behavior, not an app
+    # error. Filter activates once _running flips to False in the signal handler.
+    class _ShutdownNoiseFilter(logging.Filter):
+        def filter(self, record):
+            if _running:
+                return True
+            exc = record.exc_info
+            if exc and exc[0] and issubclass(exc[0], (asyncio.CancelledError, KeyboardInterrupt)):
+                return False
+            return True
+
+    _noise_filter = _ShutdownNoiseFilter()
+    logging.getLogger("uvicorn.error").addFilter(_noise_filter)
+
     @asynccontextmanager
     async def lifespan(app):
         global _running
