@@ -764,6 +764,8 @@ function toggleRoot(root) {
   const anyOpen = Object.values(collapsed).some(v => !v);
   const tbl = document.getElementById('folder-table');
   if (tbl) tbl.classList.toggle('cols-hidden', !anyOpen);
+  const th = document.getElementById('folder-th');
+  if (th) th.textContent = anyOpen ? 'Title' : 'Folder';
 }
 
 // ── Folder table ──────────────────────────────────────────────────────────────
@@ -775,11 +777,12 @@ function renderFolders() {
   diffs.forEach(d => { (grouped[d.sync_root] = grouped[d.sync_root] || []).push(d); });
   const roots = Object.keys(grouped);
 
+  const anyOpen = Object.values(collapsed).some(v => !v);
   let html = `
     <div class="card" style="margin-bottom:12px;overflow:hidden">
-      <table class="folder-table cols-hidden" id="folder-table">
+      <table class="folder-table ${anyOpen ? '' : 'cols-hidden'}" id="folder-table">
         <thead><tr>
-          <th>Folder</th><th>Local</th><th>Remote</th><th>Status</th><th>Action</th>
+          <th id="folder-th">${anyOpen ? 'Title' : 'Folder'}</th><th>Local</th><th>Remote</th><th>Status</th><th>Action</th>
         </tr></thead>
         <tbody id="diff-tbody"></tbody>
       </table>
