@@ -81,11 +81,6 @@ header {
   font-size: 12px; font-weight: 500;
   background: var(--blue-bg); color: var(--blue);
 }
-.server-clock {
-  font-family: var(--mono); font-size: 12px; color: var(--text-dim);
-  padding: 5px 10px;
-}
-
 /* Schedule form */
 .sched-form { padding: 18px; display: flex; flex-direction: column; gap: 18px; }
 .sched-row { display: flex; flex-direction: column; gap: 8px; }
@@ -190,20 +185,6 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
   animation: prog 1.4s ease-in-out infinite;
 }
 @keyframes prog { 0%{transform:translateX(-100%)} 100%{transform:translateX(380%)} }
-
-/* ── Info strip (always-visible, sticky below header) ── */
-.info-strip { position: sticky; top: 58px; z-index: 29; background: var(--bg); }
-.info-strip-inner { max-width: 980px; margin: 0 auto; padding: 10px 20px; }
-.info-bar {
-  display: flex; align-items: center; justify-content: space-between; gap: 14px;
-  padding: 10px 18px;
-  background: var(--teal-light);
-  border: 1px solid var(--teal-mid);
-  border-radius: var(--r);
-  font-size: 12px; color: var(--teal-dark);
-}
-.info-bar strong { font-weight: 600; }
-.info-bar .last-scan { color: var(--text-dim); white-space: nowrap; }
 
 /* ── Tabs ── */
 .tab-bar {
@@ -346,7 +327,6 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
     </div>
   </div>
   <div style="display:flex;align-items:center;gap:8px">
-    <div class="server-clock" id="server-clock" title="Server time">—</div>
     <div class="schedule-chip" id="schedule-chip" style="display:none">
       <span style="font-size:12px">⏰</span>
       <span id="schedule-chip-label"></span>
@@ -357,21 +337,6 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
     </div>
   </div>
 </header>
-
-<div class="info-strip">
-  <div class="info-strip-inner">
-    <div class="info-bar">
-      <div style="display:flex;align-items:center;gap:8px">
-        <strong>{{ node_name }}</strong>
-        {% if agent_str %}
-        <span style="color:var(--teal-mid);font-size:14px">⇄</span>
-        <strong>{{ agent_str }}</strong>
-        {% endif %}
-      </div>
-      <div class="last-scan" id="last-scan-label"></div>
-    </div>
-  </div>
-</div>
 
 <main>
   <div id="banner-area"></div>
@@ -502,6 +467,7 @@ let collapsed = {};   // key = sync_root → bool
 let es        = null;
 let syncInitiated = false;
 let prevStatus    = null;
+let lastSeenScanAt = null;
 
 const LABELS = {
   idle:'Idle', mounting:'Mounting…', scanning:'Scanning…',
@@ -684,10 +650,17 @@ function connectSSE() {
     prevStatus = d.status;
     setStatus(d.status);
     appendLog(d.new_log || []);
-    // Fresh diffs from a completed scan → reset actions so DEFAULT_ACTION
-    // is re-applied from the current diff_status (e.g. needs_sync → Sync).
-    if (d.diffs?.length)    { diffs = d.diffs; actions = {}; renderFolders(); }
-    if (d.last_scan_at)     updateLastScan(d.last_scan_at);
+    // Only reset user-chosen actions when a *new* scan has produced fresh
+    // diffs — not on every SSE frame during sync. Detect via last_scan_at.
+    if (d.diffs?.length) {
+      const freshScan = d.last_scan_at && d.last_scan_at !== lastSeenScanAt;
+      diffs = d.diffs;
+      if (freshScan) {
+        actions = {};
+        lastSeenScanAt = d.last_scan_at;
+      }
+      renderFolders();
+    }
     if (d.error)            showBanner('error', '⚠ ' + d.error);
     if (d.schedule)         updateScheduleChip(d.schedule);
     if (d.status === 'ready' && syncInitiated) {
@@ -744,15 +717,6 @@ function appendLog(lines) {
   });
   while (box.children.length > LOG_CAP) box.removeChild(box.lastChild);
   box.scrollTop = 0;
-}
-
-// ── Last scan timestamp ───────────────────────────────────────────────────────
-function updateLastScan(iso) {
-  if (!iso) return;
-  const d = new Date(iso);
-  const pad = n => String(n).padStart(2, '0');
-  const fmt = `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  document.getElementById('last-scan-label').textContent = 'Last scan: ' + fmt;
 }
 
 // ── Scan ──────────────────────────────────────────────────────────────────────
@@ -951,25 +915,12 @@ document.querySelectorAll('#sched-days input[type=checkbox]').forEach(cb =>
     updatePresetHighlights();
   }));
 
-// ── Server clock (container time, refreshed every 30s) ────────────────────────
-async function refreshServerClock() {
-  try {
-    const r = await fetch('/api/time');
-    if (r.ok) {
-      const d = await r.json();
-      document.getElementById('server-clock').textContent = d.now;
-    }
-  } catch {}
-}
-refreshServerClock();
-setInterval(refreshServerClock, 30000);
-
 // ── Init ──────────────────────────────────────────────────────────────────────
 fetch('/api/state').then(r=>r.json()).then(d => {
   setStatus(d.status);
   if (d.log?.length)      appendLog(d.log);
   if (d.diffs?.length)    { diffs = d.diffs; renderFolders(); }
-  if (d.last_scan_at)     updateLastScan(d.last_scan_at);
+  if (d.last_scan_at)     lastSeenScanAt = d.last_scan_at;
   if (d.error)            showBanner('error', '⚠ ' + d.error);
   if (d.schedule)         applyScheduleToUI(d.schedule);
   if (d.status === 'done') onDone();
