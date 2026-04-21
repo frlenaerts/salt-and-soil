@@ -51,6 +51,20 @@ The two containers communicate over **Tailscale** (WireGuard-based VPN). No rout
 
 ---
 
+## Scope and trust model
+
+Salt & Soil is a **homelab tool**, not a multi-tenant or hostile-network service. The design assumes:
+
+- **The agent API is unauthenticated.** Anyone on the Tailscale network can call `/mount`, `/unmount`, and `/list` on the agent. Trust lives at the VPN layer — if you expose the agent port on a public network, it is wide open.
+- **The orchestrator web UI has a single user account** (argon2-hashed password, signed session cookie, 5-strikes / 15-minute brute-force throttle). The throttle is in-memory and global — it resets on process restart and does not discriminate per IP.
+- **Session cookies are not marked `secure`.** You can access the UI over plain HTTP on a trusted LAN; put it behind TLS (reverse proxy, Cloudflare Tunnel, …) before exposing it publicly.
+- **Both containers run privileged with root SSH** between them. This is required for NFS mounts and rsync; it is not a hardened setup.
+- **There is no CSRF token.** The SameSite=Lax cookie is the only cross-origin defense.
+
+If your threat model includes hostile actors on your internal network, or you plan to expose this publicly without additional auth in front of it, this tool is not the right fit.
+
+---
+
 ## Deployment — Proxmox LXC Container
 
 Both the orchestrator and agent run on a Proxmox LXC container. Because the application manages its own NFS mount/unmount lifecycle via subprocesses, the container must be privileged.
