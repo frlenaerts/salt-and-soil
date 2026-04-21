@@ -47,13 +47,17 @@ def create_app(cfg: Config, runtime) -> FastAPI:
         def filter(self, record):
             if _running:
                 return True
-            exc = record.exc_info
-            if exc and exc[0] and issubclass(exc[0], (asyncio.CancelledError, KeyboardInterrupt)):
+            # During shutdown the event loop cancels in-flight ASGI tasks
+            # (SSE generators, lifespan receive()). These surface as
+            # CancelledError/KeyboardInterrupt tracebacks that uvicorn logs
+            # at ERROR level — not actual app errors, just shutdown noise.
+            if record.levelno >= logging.ERROR:
                 return False
             return True
 
     _noise_filter = _ShutdownNoiseFilter()
-    logging.getLogger("uvicorn.error").addFilter(_noise_filter)
+    for _name in ("uvicorn", "uvicorn.error", "uvicorn.asgi", "asyncio"):
+        logging.getLogger(_name).addFilter(_noise_filter)
 
     @asynccontextmanager
     async def lifespan(app):
