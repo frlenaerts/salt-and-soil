@@ -317,7 +317,7 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
   .folder-table thead th:first-child,
   .folder-table tbody td.fname { width: 100%; }
   .folder-table .fname { word-break: break-word; overflow-wrap: anywhere; }
-  .action-select { min-width: 0; }
+  .action-select { width: 100%; }
   header { padding: 0 14px; }
   main { padding: 14px 12px; }
   .exec-footer { flex-direction: column; align-items: flex-start; }
@@ -730,13 +730,20 @@ function appendLog(lines) {
 }
 
 // ── Scan ──────────────────────────────────────────────────────────────────────
-function startScan() {
+async function startScan() {
   document.getElementById('banner-area').innerHTML = '';
   actions = {};
   if (diffs.length) renderFolders();
-  connectSSE();
-  fetch('/api/start', {method:'POST'});
   setStatus('scanning');
+  try {
+    await fetch('/api/start', {method:'POST'});
+  } catch {
+    showBanner('error', '⚠ Network error starting scan');
+    const s = await fetch('/api/state').then(x => x.json()).catch(() => null);
+    if (s) setStatus(s.status);
+    return;
+  }
+  connectSSE();
 }
 
 // ── Collapsible root rows ─────────────────────────────────────────────────────
