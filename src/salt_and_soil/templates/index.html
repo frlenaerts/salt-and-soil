@@ -205,14 +205,19 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
 .tab-panel.active { display: block; }
 
 /* ── Table ── */
-.folder-table { width: 100%; border-collapse: collapse; }
+.folder-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .folder-table.cols-hidden th:not(:first-child) { display: none; }
+.folder-table thead th:nth-child(2),
+.folder-table thead th:nth-child(3) { width: 130px; }
+.folder-table thead th:nth-child(4) { width: 120px; }
+.folder-table thead th:nth-child(5) { width: 140px; }
 .folder-table thead th {
   text-align: left; font-size: 11px; font-weight: 600;
   text-transform: uppercase; letter-spacing: .7px;
   color: var(--text-dim); padding: 10px 16px;
   background: var(--bg); border-bottom: 1px solid var(--border);
 }
+.folder-table .fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .folder-table tbody td { padding: 11px 16px; border-bottom: 1px solid var(--border); vertical-align: middle; }
 .folder-table tbody tr:last-child td { border-bottom: none; }
 .folder-table tbody tr:hover td { background: #FAFBFC; }
@@ -311,12 +316,13 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
   .folder-table tbody td:nth-child(2),
   .folder-table thead th:nth-child(3),
   .folder-table tbody td:nth-child(3) { display: none; }
-  .folder-table { width: 100%; }
+  .folder-table { width: 100%; table-layout: auto; }
   .folder-table tbody td { padding: 10px 8px; }
   .folder-table thead th { padding: 10px 8px; }
+  .folder-table thead th { width: auto; }
   .folder-table thead th:first-child,
   .folder-table tbody td.fname { width: 100%; }
-  .folder-table .fname { word-break: break-word; overflow-wrap: anywhere; }
+  .folder-table .fname { word-break: break-word; overflow-wrap: anywhere; white-space: normal; overflow: visible; text-overflow: clip; }
   .action-select { width: 100%; }
   header { padding: 0 14px; }
   main { padding: 14px 12px; }
