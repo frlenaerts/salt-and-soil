@@ -311,15 +311,13 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
   .folder-table tbody td:nth-child(2),
   .folder-table thead th:nth-child(3),
   .folder-table tbody td:nth-child(3) { display: none; }
-  .folder-table { table-layout: fixed; width: 100%; }
+  .folder-table { width: 100%; }
   .folder-table tbody td { padding: 10px 8px; }
   .folder-table thead th { padding: 10px 8px; }
-  .folder-table thead th:nth-child(4),
-  .folder-table tbody td:nth-child(4) { width: 86px; }
-  .folder-table thead th:nth-child(5),
-  .folder-table tbody td:nth-child(5) { width: 104px; }
+  .folder-table thead th:first-child,
+  .folder-table tbody td.fname { width: 100%; }
   .folder-table .fname { word-break: break-word; overflow-wrap: anywhere; }
-  .action-select { min-width: 0; width: 100%; }
+  .action-select { min-width: 0; }
   header { padding: 0 14px; }
   main { padding: 14px 12px; }
   .exec-footer { flex-direction: column; align-items: flex-start; }
