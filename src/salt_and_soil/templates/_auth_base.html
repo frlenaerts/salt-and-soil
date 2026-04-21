@@ -22,10 +22,16 @@
   --shadow:     0 1px 4px rgba(0,0,0,.06), 0 2px 12px rgba(0,0,0,.04);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
 body {
   background: var(--bg); color: var(--text);
   font-family: 'DM Sans', sans-serif; font-size: 14px;
-  min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  display: flex; align-items: center; justify-content: center;
   padding: 20px;
 }
 .card {
