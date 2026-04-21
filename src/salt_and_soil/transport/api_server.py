@@ -125,8 +125,8 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
     # responses in a task group that crashes on shutdown, spamming the log with
     # CancelledError tracebacks when the /api/stream SSE connection is torn down.
     class _AuthMiddleware:
-        def __init__(self, app_):
-            self.app = app_
+        def __init__(self, app):
+            self.app = app
 
         async def __call__(self, scope, receive, send):
             if scope["type"] != "http":
