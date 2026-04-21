@@ -121,25 +121,37 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
             return uname
         return None
 
-    @app.middleware("http")
-    async def auth_middleware(request: Request, call_next):
-        path = request.url.path
-        if _is_public(path):
-            return await call_next(request)
+    # Pure-ASGI middleware (not BaseHTTPMiddleware) — the latter wraps streaming
+    # responses in a task group that crashes on shutdown, spamming the log with
+    # CancelledError tracebacks when the /api/stream SSE connection is torn down.
+    class _AuthMiddleware:
+        def __init__(self, app_):
+            self.app = app_
 
-        user = _authenticated_user(request)
-        if user:
-            request.state.user = user
-            return await call_next(request)
+        async def __call__(self, scope, receive, send):
+            if scope["type"] != "http":
+                await self.app(scope, receive, send)
+                return
+            path = scope["path"]
+            if _is_public(path):
+                await self.app(scope, receive, send)
+                return
+            request = Request(scope)
+            if _authenticated_user(request):
+                await self.app(scope, receive, send)
+                return
+            if not auth_store.exists():
+                if path.startswith("/api/"):
+                    resp = JSONResponse({"error": "setup required"}, status_code=401)
+                else:
+                    resp = RedirectResponse("/setup", status_code=303)
+            elif path.startswith("/api/"):
+                resp = JSONResponse({"error": "unauthorized"}, status_code=401)
+            else:
+                resp = RedirectResponse("/login", status_code=303)
+            await resp(scope, receive, send)
 
-        # Not authenticated.
-        if not auth_store.exists():
-            if path.startswith("/api/"):
-                return JSONResponse({"error": "setup required"}, status_code=401)
-            return RedirectResponse("/setup", status_code=303)
-        if path.startswith("/api/"):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
-        return RedirectResponse("/login", status_code=303)
+    app.add_middleware(_AuthMiddleware)
 
     def _issue_session_cookie(response: Response, username: str, remember: bool) -> None:
         user = auth_store.load()
