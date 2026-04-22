@@ -1,5 +1,4 @@
-"""python -m salt_and_soil.run.start"""
-from salt_and_soil.run.start import serve
+from salt_and_soil.cli import main
 
 if __name__ == "__main__":
-    serve()
+    main()

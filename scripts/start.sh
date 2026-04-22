@@ -7,4 +7,4 @@ CONFIG="${SALTSOIL_CONFIG:-$APP_DIR/config/config.toml}"
 export PYTHONPATH="$APP_DIR/src"
 export SALTSOIL_CONFIG="$CONFIG"
 
-exec "$VENV/bin/python" -m salt_and_soil.run.start
+exec "$VENV/bin/python" -m salt_and_soil serve

@@ -20,7 +20,7 @@ Type=simple
 WorkingDirectory=$APP_DIR
 Environment=PYTHONPATH=$APP_DIR/src
 Environment=SALTSOIL_CONFIG=$APP_DIR/config/config.toml
-ExecStart=$VENV/bin/python -m salt_and_soil.run.start
+ExecStart=$VENV/bin/python -m salt_and_soil serve
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal

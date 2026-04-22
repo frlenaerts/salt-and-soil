@@ -45,7 +45,8 @@ def _cmd_serve():
     from .config import load as load_config
     cfg     = load_config()
     fastapi = build_fastapi_app()
-    uvicorn.run(fastapi, host=cfg.server.host, port=cfg.server.port, log_level="info",
+    uvicorn.run(fastapi, host=cfg.server.host, port=cfg.server.port,
+                log_level=cfg.app.log_level.lower(),
                 timeout_graceful_shutdown=3)
 
 
