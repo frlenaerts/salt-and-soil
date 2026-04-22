@@ -8,6 +8,12 @@ It mirrors selected directories between two storage systems using **on-demand NF
 
 ---
 
+## Development approach
+
+Salt & Soil was developed using an AI-assisted workflow. The architecture, scope, and design decisions were defined manually, while AI tooling helped accelerate implementation, refactoring, and documentation.
+
+---
+
 ## Why Salt & Soil exists
 
 Most synchronization tools assume always-on infrastructure and permanent mounts.
