@@ -38,9 +38,19 @@ Scans can be triggered manually or on a schedule, but the actual sync is always 
 
 ---
 
+## Sync granularity
+
+Each entry in `sync_roots` is scanned **one level deep**. The immediate subdirectories become the units of comparison — each shows up as its own row in the diff, with its own Sync / Skip / Pull / Push / Delete action. `rsync` then transfers that subdirectory recursively as a whole.
+
+Concretely, with `sync_roots = ["projects", "archives"]` you get diff rows like `projects/alpha` or `archives/2024`. You cannot decide per-file or per-deeper-subfolder within one of those units — the whole subdirectory is one decision.
+
+This matches use cases where each top-level subfolder is a natural unit. For finer-grained or deeper-recursive sync, this version is not the right fit; it may be revisited in a future release.
+
+---
+
 ## Architecture
 
-Two roles, each running on a Proxmox LXC container:
+Two roles, each running on its own Linux host (bare metal, VM, or container):
 
 | Role | Location | Responsibility |
 |------|----------|----------------|
