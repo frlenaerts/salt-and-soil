@@ -667,7 +667,7 @@ async function saveSchedule(ev) {
 
 // ── SSE ───────────────────────────────────────────────────────────────────────
 function connectSSE() {
-  if (es) es.close();
+  if (es && es.readyState !== 2) return;   // already open or connecting (0=CONNECTING, 1=OPEN, 2=CLOSED)
   es = new EventSource('/api/stream');
   es.onmessage = ev => {
     const d = JSON.parse(ev.data);
@@ -694,10 +694,8 @@ function connectSSE() {
       } else {
         showBanner('done', '✓ Sync complete — NAS devices can go to sleep now 🛌');
       }
-      closeSse();
     }
-    if (d.status === 'done')  { onDone(); closeSse(); }
-    if (d.status === 'error') { closeSse(); }
+    if (d.status === 'done') onDone();
   };
 }
 function closeSse() { if (es) { es.close(); es = null; } }
@@ -958,7 +956,7 @@ fetch('/api/state').then(r=>r.json()).then(d => {
   if (d.error)            showBanner('error', '⚠ ' + d.error);
   if (d.schedule)         applyScheduleToUI(d.schedule);
   if (d.status === 'done') onDone();
-  if (['mounting','scanning','syncing'].includes(d.status)) connectSSE();
+  connectSSE();
 });
 </script>
 </body>
