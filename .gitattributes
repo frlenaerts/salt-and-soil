@@ -1,0 +1,4 @@
+# Shell scripts must use LF line endings, even when checked out on Windows.
+# Without this, `set -euo pipefail` (and other bash builtins) fail on Linux
+# targets that receive CRLF-encoded scripts via git archive / release tarball.
+*.sh text eol=lf

@@ -4,12 +4,22 @@
 #  One-time setup on a new LXC container (Debian 12 / Ubuntu 24).
 #
 #  Usage:
-#    bash scripts/bootstrap.sh
-#    bash scripts/bootstrap.sh --role agent     # agent packages only
+#    bash scripts/bootstrap.sh                  # defaults to orchestrator
+#    bash scripts/bootstrap.sh agent            # positional
+#    bash scripts/bootstrap.sh --role agent     # or flag form
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-ROLE="${1:-orchestrator}"
+case "${1:-}" in
+    --role) ROLE="${2:-orchestrator}" ;;
+    "")     ROLE="orchestrator" ;;
+    *)      ROLE="$1" ;;
+esac
+
+if [ "$ROLE" != "orchestrator" ] && [ "$ROLE" != "agent" ]; then
+    echo "Error: role must be 'orchestrator' or 'agent' (got: '$ROLE')" >&2
+    exit 1
+fi
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 VENV="$APP_DIR/.venv"
 
