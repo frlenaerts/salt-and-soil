@@ -1,10 +1,10 @@
 # Salt & Soil
 
-**Salt & Soil** is a lightweight dual-node directory synchronization tool for homelab environments with storage located at multiple physical sites.
+**Salt & Soil** is a lightweight dual-node directory synchronization tool for environments with storage located at multiple physical sites.
 
-It mirrors selected directories between two NAS systems using **on-demand NFS mounts** and **rsync-based transfers**, while allowing both systems to remain in sleep mode when idle.
+It mirrors selected directories between two storage systems using **on-demand NFS mounts** and **rsync-based transfers**, while allowing both systems to remain in sleep mode when idle.
 
-> keep storage in sync without keeping NAS devices awake 24/7
+> keep storage in sync without keeping devices awake 24/7
 
 ---
 
@@ -12,9 +12,9 @@ It mirrors selected directories between two NAS systems using **on-demand NFS mo
 
 Most synchronization tools assume always-on infrastructure and permanent mounts.
 
-In multi-location homelab setups this is often undesirable:
+In multi-location setups this is often undesirable:
 
-- NAS devices should stay asleep when idle
+- storage devices should stay asleep when idle
 - remote locations are not always reachable
 - permanent mounts create unnecessary coupling
 - subdirectory-level sync control is limited in many existing tools
@@ -26,15 +26,15 @@ Salt & Soil solves this by mounting NFS shares only when needed and executing ex
 ## How it works
 
 1. Press **Start Scan** in the web UI
-2. Both NAS systems are mounted via NFS (orchestrator locally, agent remotely)
+2. Both storage systems are mounted via NFS (orchestrator locally, agent remotely)
 3. Both sides are scanned and compared
 4. NFS mounts are released immediately after the scan
 5. The UI shows a diff per directory: in sync, different, local only, remote only
 6. Select actions per directory and press **Execute**
 7. rsync transfers the selected directories over SSH via Tailscale
-8. Both mounts are released again — NAS devices return to sleep
+8. Both mounts are released again — storage devices return to sleep
 
-Synchronization is intentionally **operator-triggered**, not continuous.
+Scans can be triggered manually or on a schedule, but the actual sync is always **operator-triggered** — never continuous, never automatic.
 
 ---
 
@@ -45,7 +45,7 @@ Two roles, each running on a Proxmox LXC container:
 | Role | Location | Responsibility |
 |------|----------|----------------|
 | **Orchestrator** | Site A (home) | Web UI, scan, compare, execute rsync |
-| **Agent** | Site B (remote) | Mount remote NAS, expose scan API |
+| **Agent** | Site B (remote) | Mount remote storage, expose scan API |
 
 The two containers communicate over **Tailscale** (WireGuard-based VPN). No router port forwarding is required.
 
@@ -53,7 +53,7 @@ The two containers communicate over **Tailscale** (WireGuard-based VPN). No rout
 
 ## Scope and trust model
 
-Salt & Soil is a **homelab tool**, not a multi-tenant or hostile-network service. The design assumes:
+Salt & Soil is a **single-operator tool for a trusted network**, not a multi-tenant or hostile-network service. The design assumes:
 
 - **The agent API is unauthenticated.** Anyone on the Tailscale network can call `/mount`, `/unmount`, and `/list` on the agent. Trust lives at the VPN layer — if you expose the agent port on a public network, it is wide open.
 - **The orchestrator web UI has a single user account** (argon2-hashed password, signed session cookie, 5-strikes / 15-minute brute-force throttle). The throttle is in-memory and global — it resets on process restart and does not discriminate per IP.
@@ -61,27 +61,40 @@ Salt & Soil is a **homelab tool**, not a multi-tenant or hostile-network service
 - **Both containers run privileged with root SSH** between them. This is required for NFS mounts and rsync; it is not a hardened setup.
 - **There is no CSRF token.** The SameSite=Lax cookie is the only cross-origin defense.
 
-If your threat model includes hostile actors on your internal network, or you plan to expose this publicly without additional auth in front of it, this tool is not the right fit.
+If your threat model includes hostile actors on your internal network, or you plan to expose this publicly without additional auth in front of it, this tool is — *for now* — not the right fit. The current model is sufficient for the author's personal use; stricter auth (agent tokens, CSRF, `secure` cookies) may land in a future version.
 
 ---
 
-## Deployment — Proxmox LXC Container
+## Deployment
 
-Both the orchestrator and agent run on a Proxmox LXC container. Because the application manages its own NFS mount/unmount lifecycle via subprocesses, the container must be privileged.
+Salt & Soil runs on any Linux host with Python 3.10+, `rsync`, and the standard NFS client tools — bare metal, VM, or container. Because the application manages its own NFS mount/unmount lifecycle via subprocesses, it needs root (or a sufficiently capable container).
 
-### Recommended container settings (both nodes)
+### Reference setup — LXC container
+
+The specs below are what the author runs in an LXC container. Any other Linux environment works as long as NFS mounts succeed from within it.
+
+Both the orchestrator and agent run on a **privileged** LXC container (privileged is required for NFS mount via subprocess). **NFS must be enabled inside the container** — most LXC managers ship it disabled by default.
+
+#### Recommended container settings (both nodes)
 
 | Parameter | Value | Reason |
 |-----------|-------|--------|
-| **Template** | Debian 12 (bookworm) | |
+| **Template** | any modern Linux with Python 3.10+ | author runs Debian 12 (bookworm); Ubuntu 22.04+ etc. should work too |
 | **Disk** | 8 GB | OS + Python/venv + data, logs, snapshots |
 | **Memory** | 512 MB (max 1024 MB) | FastAPI idle ~80 MB; headroom for rsync and scan |
 | **CPU cores** | 1–2 | rsync is I/O-bound, not CPU-bound |
 | **Unprivileged** | **No — use privileged** | Required for NFS mount via subprocess |
 
-### Required LXC features
+#### Required container features
 
-Both NFS and Tailscale require additional device access. Run this on the **Proxmox host** for each container (replace `<ID>` with the container ID):
+The container needs two things beyond a default Debian LXC:
+
+- **NFS support** — so `mount -t nfs …` works inside the container
+- **TUN device access** — required by Tailscale (see [Networking](#networking--tailscale) below)
+
+Concretely: the host must (1) allow the NFS kernel syscalls through the container's AppArmor/feature profile, and (2) bind-mount `/dev/net/tun` into the container. These are host-side changes — the container itself cannot grant them.
+
+The exact commands depend on your LXC manager. For **Proxmox** (running on the Proxmox host, replace `<ID>` with the container ID):
 
 ```bash
 # Enable NFS inside the container
@@ -94,7 +107,9 @@ lxc.mount.entry = /dev/net/tun dev/net/tun none bind,create=file' >> /etc/pve/lx
 pct restart <ID>
 ```
 
-**These settings are not included in container backups** — re-apply them after a restore.
+For **Incus** / **LXD** / plain **lxc**, consult your manager's docs for the equivalent of "allow NFS mount" and "pass through `/dev/net/tun`".
+
+**On Proxmox, these settings are not included in container backups** — re-apply them after a restore.
 
 ---
 
@@ -132,11 +147,11 @@ Use this `100.x.x.x` address in the orchestrator `config.toml` under `[[agents]]
 
 ## Installation
 
-Run on each container after cloning the repository:
+Download the latest release tarball from the [GitHub releases page](https://github.com/frlenaerts/salt-and-soil/releases) and run the bootstrap script on each container:
 
 ```bash
 cd /opt
-git clone https://github.com/frlenaerts/salt-and-soil.git
+curl -L https://github.com/frlenaerts/salt-and-soil/releases/latest/download/salt-and-soil.tar.gz | tar xz
 cd salt-and-soil
 bash scripts/bootstrap.sh --role orchestrator   # or --role agent
 ```
@@ -160,10 +175,10 @@ role      = "orchestrator"
 node_name = "your-node-name"
 
 [mount]
-remote_host       = "192.168.1.x"     # IP of the local NAS
+remote_host       = "192.168.1.x"     # IP of the local storage server
 remote_share      = "/volume1/video"  # NFS export path
 local_mount_path  = "/mnt/nas"
-mount_retry_delay = 10                # seconds before retrying a failed mount (NAS wake-up)
+mount_retry_delay = 10                # seconds before retrying a failed mount (wake-up)
 
 [sync]
 sync_roots = ["Movies", "TV Series"]
@@ -176,7 +191,7 @@ ssh_host          = "100.x.x.x"       # same Tailscale IP
 ssh_user          = "root"
 ssh_key_file      = "/root/.ssh/saltsoil_key"
 remote_mount_path = "/mnt/nas"
-remote_share      = "/volume1/video"  # NFS share on the agent's NAS
+remote_share      = "/volume1/video"  # NFS share on the agent's storage
 ```
 
 Orchestrator and agent can both use port `8080` when they run on separate hosts (different IPs). If you run them on the same host, give each one a distinct port under `[server]`.
@@ -189,7 +204,7 @@ role      = "agent"
 node_name = "agent-01"
 
 [mount]
-remote_host      = "192.168.1.x"      # IP of the remote NAS
+remote_host      = "192.168.1.x"      # IP of the remote storage server
 remote_share     = "/volume1/video"
 local_mount_path = "/mnt/nas"
 ```
@@ -228,14 +243,16 @@ One pattern per line; `#` starts a comment; `*`, `?`, `[..]` work (rsync/fnmatch
 
 Deploy the **same file** on both orchestrator and agent so their scans compute identical sizes — otherwise you'll see false "Different" statuses.
 
-### Synology NFS permissions
+### NFS export permissions
 
-On each Synology NAS, go to **Control Panel → Shared Folder → [folder] → Edit → NFS Permissions** and add a rule for the container's local IP:
+The storage server needs to allow NFS mounts from the container's IP. On **Synology**, go to **Control Panel → Shared Folder → [folder] → Edit → NFS Permissions** and add a rule for the container's local IP:
 
 - Hostname/IP: `192.168.1.x` (IP of the LXC container on that network)
 - Privilege: Read/Write
 - Squash: No mapping
 - Security: sys
+
+On other storage systems (TrueNAS, a plain Linux NFS server, QNAP, …) look for the equivalent export-permission settings — the fundamentals (allowed client IP, read/write, root squash, sec mode) are the same.
 
 ---
 
@@ -279,29 +296,7 @@ Once key-based login works you can set `PasswordAuthentication no` again on the 
 
 ## Running
 
-### During development / testing
-
-```bash
-cd /opt/salt-and-soil
-source .venv/bin/activate
-PYTHONPATH=src python -m salt_and_soil serve
-```
-
-Open the web UI at `http://<container-ip>:<port>` (default port 8080, configurable under `[server]` in `config.toml`).
-
-The agent runs the same command on its container — it exposes a REST API, no UI.
-
-### First-run setup
-
-On first visit the orchestrator redirects to `/setup` to create the single user account (username + password, minimum 8 characters). After that, access to the UI and `/api/*` requires a signed session cookie issued by `/login`. The "Remember me" checkbox extends the cookie lifetime to 30 days.
-
-Passwords are hashed with **argon2** and the session-signing secret is rotated on every password change. Repeated failed logins are throttled: **5 failures** lock new attempts for **15 minutes**.
-
-Auth state lives in `./data/auth.toml` — delete that file to start over.
-
-### Production (systemd service)
-
-For permanent deployment, install both nodes as a systemd service so they start automatically on boot:
+Install both nodes as a systemd service so they start automatically on boot:
 
 ```bash
 bash scripts/install-service.sh
@@ -315,6 +310,16 @@ systemctl restart salt-and-soil
 journalctl -u salt-and-soil -f
 ```
 
+Open the web UI at `http://<container-ip>:<port>` (default port 8080, configurable under `[server]` in `config.toml`). The agent runs as the same service on its own container — it exposes a REST API, no UI.
+
+### First-run setup
+
+On first visit the orchestrator redirects to `/setup` to create the single user account (username + password, minimum 8 characters). After that, access to the UI and `/api/*` requires a signed session cookie issued by `/login`. The "Remember me" checkbox extends the cookie lifetime to 30 days.
+
+Passwords are hashed with **argon2** and the session-signing secret is rotated on every password change. Repeated failed logins are throttled: **5 failures** lock new attempts for **15 minutes**.
+
+Auth state lives in `./data/auth.toml` — delete that file to start over.
+
 ---
 
 ## Scheduled scans
@@ -322,15 +327,6 @@ journalctl -u salt-and-soil -f
 The **Schedule** tab in the UI lets you trigger automatic scans on selected days of the week at a fixed time (24h clock). Pick specific days, use the `Daily` / `Weekdays` / `Weekend` presets, or toggle the whole schedule off. When enabled, the header shows a small clock-chip with the next fire time.
 
 A scheduled run behaves exactly like pressing **Start Scan** manually — it mounts, scans, presents the diff, and waits for you to press **Execute**. It does not auto-sync.
-
----
-
-## Running tests
-
-```bash
-source .venv/bin/activate
-PYTHONPATH=src pytest
-```
 
 ---
 
