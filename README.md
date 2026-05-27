@@ -208,24 +208,24 @@ ssh_key_file = "/root/.ssh/saltsoil_key"
 # Each [[sources]] entry is one alias shown in the UI and one logical
 # pairing between an orchestrator share and an agent share.
 [[sources]]
-alias        = "Movies"
+alias        = "Projects"
 sort         = 10                 # lower sort = higher in the UI (use steps of 10)
 agent        = "agent-01"         # must match an [[agents]].name
 local_host   = "192.168.1.x"      # NFS host on this orchestrator's NAS
-local_share  = "/volume1/video"   # NFS export on this NAS
-local_path   = "Movies"           # subdir under the share; "" = scan share root
-remote_share = "/volume1/video"   # NFS export on the agent's NAS (its config knows the host)
-remote_path  = "Movies"
+local_share  = "/volume1/data"    # NFS export on this NAS
+local_path   = "projects"         # subdir under the share; "" = scan share root
+remote_share = "/volume1/data"    # NFS export on the agent's NAS (its config knows the host)
+remote_path  = "projects"
 
 [[sources]]
-alias        = "TV Series"
+alias        = "Archives"
 sort         = 20
 agent        = "agent-01"
 local_host   = "192.168.1.x"
-local_share  = "/volume1/video"   # same share as Movies → reuses one mount
-local_path   = "TV Series"
-remote_share = "/volume1/video"
-remote_path  = "TV Series"
+local_share  = "/volume1/data"    # same share as Projects → reuses one mount
+local_path   = "archives"
+remote_share = "/volume1/data"
+remote_path  = "archives"
 ```
 
 Two sources with the same `(local_host, local_share)` share one underlying mount; a source with a different share gets its own mount. Mount points are derived as `{mount_root_local}/{slug(host)}_{slug(share)}` so they're stable and inspectable from `mount | grep salt-and-soil`.
@@ -244,16 +244,16 @@ mount_root_local  = "/mnt/salt-and-soil"
 mount_root_remote = "/mnt/salt-and-soil"
 
 [[sources]]
-alias       = "Movies"
+alias       = "Projects"
 local_host  = "192.168.2.x"       # NFS host on this agent's NAS
-local_share = "/volume1/video"
-local_path  = "Movies"
+local_share = "/volume1/data"
+local_path  = "projects"
 
 [[sources]]
-alias       = "TV Series"
+alias       = "Archives"
 local_host  = "192.168.2.x"
-local_share = "/volume1/video"
-local_path  = "TV Series"
+local_share = "/volume1/data"
+local_path  = "archives"
 ```
 
 Aliases must match between the two nodes — that's how the orchestrator addresses its agent. The `agent`/`sort`/`remote_*` fields are orchestrator-only and ignored on the agent.
