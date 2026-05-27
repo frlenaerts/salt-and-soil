@@ -46,9 +46,11 @@ Scans can be triggered manually or on a schedule, but the actual sync is always 
 
 ## Sync granularity
 
-Each entry in `sync_roots` is scanned **one level deep**. The immediate subdirectories become the units of comparison — each shows up as its own row in the diff, with its own Sync / Skip / Pull / Push / Delete action. `rsync` then transfers that subdirectory recursively as a whole.
+Each `[[sources]]` entry is scanned **one level deep** at `mount_point + local_path`. The immediate subdirectories become the units of comparison — each shows up as its own row in the diff, with its own Sync / Skip / Pull / Push / Delete action. `rsync` then transfers that subdirectory recursively as a whole.
 
-Concretely, with `sync_roots = ["projects", "archives"]` you get diff rows like `projects/alpha` or `archives/2024`. You cannot decide per-file or per-deeper-subfolder within one of those units — the whole subdirectory is one decision.
+Concretely, with two sources `Projects` (path `projects`) and `Archives` (path `archives`) you get diff rows under each alias like `projects/alpha` or `archives/2024`. You cannot decide per-file or per-deeper-subfolder within one of those units — the whole subdirectory is one decision.
+
+If you set `local_path = ""` the scan starts at the share root itself — useful for shares where the top-level entries are already the units (e.g. a music share whose top level is album directories).
 
 This matches use cases where each top-level subfolder is a natural unit. For finer-grained or deeper-recursive sync, this version is not the right fit; it may be revisited in a future release.
 
@@ -190,40 +192,71 @@ Key settings for the **orchestrator**:
 role      = "orchestrator"
 node_name = "your-node-name"
 
-[mount]
-remote_host       = "192.168.1.x"     # IP of the local storage server
-remote_share      = "/volume1/video"  # NFS export path
-local_mount_path  = "/mnt/nas"
-mount_retry_delay = 10                # seconds before retrying a failed mount (wake-up)
-
-[sync]
-sync_roots = ["Movies", "TV Series"]
+[mount_defaults]
+mount_root_local  = "/mnt/salt-and-soil"   # parent dir; each (host,share) gets a slug under here
+mount_root_remote = "/mnt/salt-and-soil"   # parent dir on the agent (same convention)
+mount_retry_delay = 10                     # seconds before retrying a failed mount (wake-up)
 
 [[agents]]
-name              = "agent-01"
-host              = "100.x.x.x"       # Tailscale IP of the agent
-port              = 8080              # free to choose — must match agent's [server] port
-ssh_host          = "100.x.x.x"       # same Tailscale IP
-ssh_user          = "root"
-ssh_key_file      = "/root/.ssh/saltsoil_key"
-remote_mount_path = "/mnt/nas"
-remote_share      = "/volume1/video"  # NFS share on the agent's storage
+name         = "agent-01"
+host         = "100.x.x.x"        # Tailscale IP of the agent
+port         = 8080               # free to choose — must match agent's [server] port
+ssh_host     = "100.x.x.x"        # same Tailscale IP
+ssh_user     = "root"
+ssh_key_file = "/root/.ssh/saltsoil_key"
+
+# Each [[sources]] entry is one alias shown in the UI and one logical
+# pairing between an orchestrator share and an agent share.
+[[sources]]
+alias        = "Movies"
+sort         = 10                 # lower sort = higher in the UI (use steps of 10)
+agent        = "agent-01"         # must match an [[agents]].name
+local_host   = "192.168.1.x"      # NFS host on this orchestrator's NAS
+local_share  = "/volume1/video"   # NFS export on this NAS
+local_path   = "Movies"           # subdir under the share; "" = scan share root
+remote_share = "/volume1/video"   # NFS export on the agent's NAS (its config knows the host)
+remote_path  = "Movies"
+
+[[sources]]
+alias        = "TV Series"
+sort         = 20
+agent        = "agent-01"
+local_host   = "192.168.1.x"
+local_share  = "/volume1/video"   # same share as Movies → reuses one mount
+local_path   = "TV Series"
+remote_share = "/volume1/video"
+remote_path  = "TV Series"
 ```
+
+Two sources with the same `(local_host, local_share)` share one underlying mount; a source with a different share gets its own mount. Mount points are derived as `{mount_root_local}/{slug(host)}_{slug(share)}` so they're stable and inspectable from `mount | grep salt-and-soil`.
 
 Orchestrator and agent can both use port `8080` when they run on separate hosts (different IPs). If you run them on the same host, give each one a distinct port under `[server]`.
 
-Key settings for the **agent** — same file, different role:
+Key settings for the **agent** — same file, different role, no `[[agents]]` block, and per-source the agent's *own* local view of each share:
 
 ```toml
 [app]
 role      = "agent"
 node_name = "agent-01"
 
-[mount]
-remote_host      = "192.168.1.x"      # IP of the remote storage server
-remote_share     = "/volume1/video"
-local_mount_path = "/mnt/nas"
+[mount_defaults]
+mount_root_local  = "/mnt/salt-and-soil"
+mount_root_remote = "/mnt/salt-and-soil"
+
+[[sources]]
+alias       = "Movies"
+local_host  = "192.168.2.x"       # NFS host on this agent's NAS
+local_share = "/volume1/video"
+local_path  = "Movies"
+
+[[sources]]
+alias       = "TV Series"
+local_host  = "192.168.2.x"
+local_share = "/volume1/video"
+local_path  = "TV Series"
 ```
+
+Aliases must match between the two nodes — that's how the orchestrator addresses its agent. The `agent`/`sort`/`remote_*` fields are orchestrator-only and ignored on the agent.
 
 ### Excluding files from scan + sync
 

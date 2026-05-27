@@ -19,7 +19,7 @@ python -m salt_and_soil serve --config ./config/agent.toml
 
 # Scan without UI (debug)
 python -m salt_and_soil scan
-python -m salt_and_soil scan --root videos
+python -m salt_and_soil scan --alias Movies
 
 # Mount + scan + UI test mode (unmounts on stop)
 python -m salt_and_soil test-mount
@@ -36,19 +36,22 @@ pytest -k test_name
 The system has two runtime roles configured via `config.toml`:
 
 **Orchestrator** (`app.role = "orchestrator"`) — runs on the initiating machine:
-1. Mounts local storage via NFS
-2. Calls agent API to mount remote storage
-3. `DirScanner` scans both local and remote directories (via agent `/list` endpoint)
-4. `Comparer` diffs snapshots (size + mtime, 1% tolerance)
-5. Presents HTML UI with diffs; user selects sync actions
-6. `sync.planner.build_jobs` turns the selected diffs into `SyncJob`s
-7. `SyncExecutor` runs `rsync -avz` over SSH for each job
-8. Unmounts both sides
+1. Mounts each unique `(local_host, local_share)` from `[[sources]]` via NFS (deduped through `MountRegistry`)
+2. Calls agent API once per source to mount the agent-side share
+3. `DirScanner.scan_source(path, alias)` scans the local mount + `local_path` for each source
+4. Agent `/list?alias=<alias>` returns the corresponding directory listing
+5. `Comparer` diffs snapshots (size + mtime, 1% tolerance)
+6. Presents HTML UI with diffs grouped by source alias; user selects sync actions
+7. `sync.planner.build_jobs` turns the selected diffs into `SyncJob`s (each carries its `source_alias`)
+8. `SyncExecutor` resolves per-job local + remote paths via a `source_map` and runs `rsync -avz` over SSH
+9. Unmounts both sides
 
 **Agent** (`app.role = "agent"`) — runs on the remote machine, exposes a REST API:
-- `POST /mount` / `POST /unmount` — NFS mount lifecycle
-- `GET /list?root=videos` — directory listing for comparison
-- `GET /status`, `GET /health`
+- `POST /mount` body `{alias}` — mount the `(local_host, local_share)` for that source via the agent's own `MountRegistry`
+- `POST /unmount` body `{alias}` (or empty = unmount all) — release shares
+- `GET /list?alias=<alias>` — directory listing for that source's `local_path`
+- `GET /status` — one entry per known alias with host/share/mount_point/total/free/error
+- `GET /health`
 
 ### Entry Points
 
@@ -67,6 +70,7 @@ The system has two runtime roles configured via `config.toml`:
 | `sync/planner.py` | Convert selected diffs into `SyncJob`s (planned action + pending status) |
 | `sync/executor.py` | rsync job execution |
 | `mounts/nfs.py` | NFS mount/unmount via subprocess |
+| `mounts/registry.py` | `MountRegistry` — dedups `NFSMount` instances by `(host, share)` |
 | `state/` | JSON-persisted state (jobs, diffs, last scan) |
 | `auth/` | Argon2 password hashing, signed session cookies, login brute-force throttle |
 | `schedule/` | Cron-like scheduler for automatic scans (day-of-week + time) |
@@ -84,20 +88,30 @@ Copy `config/config.example.toml` to `config/config.toml`. Key sections:
 [app]
 role = "orchestrator"   # or "agent"
 
-[mount]
-remote_host      = "192.168.1.100"
-remote_share     = "/volume1/media"
-local_mount_path = "/mnt/nas"
+[mount_defaults]
+mount_root_local  = "/mnt/salt-and-soil"
+mount_root_remote = "/mnt/salt-and-soil"
 
 [sync]
-sync_roots   = ["videos", "music"]
 compare_mode = "size_mtime"             # or "checksum"
 exclude_file = "./config/excludes.list" # gitignore-style patterns for scan + rsync
 
 [[agents]]
-name = "remote-node"
+name = "agent-01"
 host = "192.168.1.x"
+
+[[sources]]
+alias        = "videos"
+sort         = 10                       # UI ordering; lower = higher in the list
+agent        = "agent-01"               # must match an [[agents]].name
+local_host   = "192.168.1.100"
+local_share  = "/volume1"
+local_path   = "videos"                 # "" = scan share root
+remote_share = "/volume1"
+remote_path  = "videos"
 ```
+
+Sources are first-class. Each `[[sources]]` entry yields one alias in the UI; the loader sorts them by `(sort, alias)` and validates uniqueness, `local_path` traversal, and (on orchestrator) that every `agent` reference matches an `[[agents]].name`. The `MountRegistry` then deduplicates by `(host, share)` so two sources on the same share reuse one mount.
 
 The excludes file is plain text, one pattern per line (`#` comments, `*`/`?`/`[..]` globs). It's passed to `rsync --exclude-from` and to `du --exclude=` during scan, and also filters top-level folders. Deploy the same file on both nodes so their scans compute identical sizes.
 
