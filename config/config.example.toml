@@ -19,24 +19,23 @@ port = 8080
 [auth]
 api_key = ""
 
-# Local NAS mount (the NAS on the same network as this node)
-[mount]
-enabled           = true
+# NFS mount defaults — applied to every (host, share) mount on this node.
+# Each unique (local_host, local_share) across all [[sources]] becomes one
+# mount under {mount_root_local}/{slug(host)}_{slug(share)}.
+[mount_defaults]
 type              = "nfs"
-remote_host       = "192.168.1.100"        # IP of the NAS
-remote_share      = "/volume1"             # NFS export path
-local_mount_path  = "/mnt/salt-and-soil"   # Local mount point
 nfs_version       = 3
 nfs_options       = "soft,timeo=30,retrans=3"
-mount_retry_delay = 10                     # seconds to wait before retrying a failed mount (NAS wake-up)
+mount_retry_delay = 10                       # seconds to wait before retrying a failed mount (NAS wake-up)
+mount_root_local  = "/mnt/salt-and-soil"     # parent dir for local mounts on this node
+mount_root_remote = "/mnt/salt-and-soil"     # parent dir for mounts on the agent node (same convention)
 
-# What gets synchronised
+# What gets synchronised — generic knobs that apply to every source
 [sync]
 scan_on_startup   = false
 auto_resume       = true
 compare_mode      = "size_mtime"  # "size_mtime" | "checksum"
 max_parallel_jobs = 2
-sync_roots        = ["videos"]    # subdirectories inside the NFS share
 exclude_file      = "./config/excludes.list"   # gitignore-style patterns applied to scan + rsync
 
 # Local state storage
@@ -45,19 +44,40 @@ backend      = "json"
 state_file   = "./data/state/state.json"
 snapshot_dir = "./data/state/snapshots"
 
-# Agent connections (orchestrator only)
+# Agent connections (orchestrator only).
+# Per-source mount details (share/path) live in [[sources]], not here.
 [[agents]]
-name              = "agent-01"
-host              = "10.0.0.2"            # IP of the agent node (API calls)
-port              = 8080                  # free to choose — must match agent's [server] port
-api_key           = ""                    # must match the agent's [auth] api_key
-ssh_host          = "10.0.0.2"            # IP for rsync over SSH
-ssh_user          = "root"
-ssh_key_file      = "/root/.ssh/saltsoil_key"
-remote_mount_path = "/mnt/salt-and-soil"  # Mount path on the agent node
+name         = "agent-01"
+host         = "10.0.0.2"            # IP of the agent node (API calls)
+port         = 8080                  # must match agent's [server] port
+api_key      = ""                    # must match the agent's [auth] api_key
+ssh_host     = "10.0.0.2"            # IP for rsync over SSH
+ssh_user     = "root"
+ssh_key_file = "/root/.ssh/saltsoil_key"
 
-# Multiple agents are supported:
-# [[agents]]
-# name = "agent-02"
-# host = "10.0.0.3"
-# ...
+# Sync targets. Each [[sources]] entry is one alias/group in the UI and one
+# logical pairing between an orchestrator share and an agent share.
+# Multiple sources with the same (local_host, local_share) share one mount.
+
+[[sources]]
+alias        = "videos"
+sort         = 10                    # lower sort = higher in the UI list (use steps of 10)
+agent        = "agent-01"            # must match an [[agents]].name
+local_host   = "192.168.1.100"       # NFS host on this (orchestrator) NAS
+local_share  = "/volume1"            # NFS export on this NAS
+local_path   = "videos"              # subdir under the share; "" = scan the share root
+remote_share = "/volume1"            # NFS export on the agent's NAS (its config knows the host)
+remote_path  = "videos"
+
+# Multiple sources are supported. Two sources with the same local_share reuse
+# the same mount; a source with a different local_share gets its own mount.
+#
+# [[sources]]
+# alias        = "music"
+# sort         = 20
+# agent        = "agent-01"
+# local_host   = "192.168.1.100"
+# local_share  = "/volume2"
+# local_path   = ""                  # albums directly at the share root
+# remote_share = "/volume2"
+# remote_path  = ""

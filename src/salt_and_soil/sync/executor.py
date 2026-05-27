@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-import os
+import posixpath
 import re
 import shlex
+from dataclasses import dataclass
 from typing import AsyncIterator
 
 from ..state.models import SyncJob
@@ -12,21 +13,28 @@ from ..shared.clock import utc_now_iso
 from ..shared.paths import human_size
 
 
+@dataclass
+class ResolvedSource:
+    """One source resolved to absolute local + remote paths.
+    `local_full_path` is the orchestrator-side directory whose top-level
+    children are sync units; `remote_full_path` is the same on the agent."""
+    local_full_path:  str
+    remote_full_path: str
+
+
 class SyncExecutor:
     def __init__(
         self,
-        local_mount:  str,
+        source_map:   dict[str, ResolvedSource],
         remote_host:  str,
         remote_user:  str,
-        remote_mount: str,
         ssh_key_file: str,
         remote_name:  str = "",
         exclude_file: str = "",
     ):
-        self.local_mount  = local_mount
+        self.source_map   = source_map
         self.remote_host  = remote_host
         self.remote_user  = remote_user
-        self.remote_mount = remote_mount
         self.ssh_key_file = ssh_key_file
         self.remote_name  = remote_name
         self.exclude_file = exclude_file
@@ -52,6 +60,15 @@ class SyncExecutor:
             "-o StrictHostKeyChecking=no "
             "-o ConnectTimeout=10"
         )
+
+    def _resolve(self, job: SyncJob) -> ResolvedSource:
+        try:
+            return self.source_map[job.source_alias]
+        except KeyError:
+            raise RuntimeError(
+                f"SyncExecutor: unknown source alias '{job.source_alias}' "
+                f"(known: {sorted(self.source_map.keys())})"
+            )
 
     async def execute(self, job: SyncJob) -> AsyncIterator[str]:
         job.status     = JobStatus.RUNNING
@@ -79,10 +96,11 @@ class SyncExecutor:
             yield f"ERROR: {e}"
 
     async def _rsync(self, job: SyncJob, direction: str = "push") -> AsyncIterator[str]:
-        local = os.path.join(self.local_mount, job.sync_root, job.folder) + "/"
-        remote = (
+        src_info = self._resolve(job)
+        local    = posixpath.join(src_info.local_full_path, job.folder) + "/"
+        remote   = (
             f"{self.remote_user}@{self.remote_host}:"
-            f"{self.remote_mount}/{job.sync_root}/{job.folder}/"
+            f"{posixpath.join(src_info.remote_full_path, job.folder)}/"
         )
         src, dst = (local, remote) if direction == "push" else (remote, local)
         cmd = ["rsync", "-avz", "--progress", "--partial"]
@@ -156,8 +174,9 @@ class SyncExecutor:
         return f"{name} — {size} — {speed}"
 
     async def _delete_remote(self, job: SyncJob) -> AsyncIterator[str]:
-        path = f"{self.remote_mount}/{job.sync_root}/{job.folder}"
-        label = self.remote_name or self.remote_host
+        src_info = self._resolve(job)
+        path     = posixpath.join(src_info.remote_full_path, job.folder)
+        label    = self.remote_name or self.remote_host
         yield f"Deleting on {label}: {path}"
         proc = await asyncio.create_subprocess_exec(
             "ssh",

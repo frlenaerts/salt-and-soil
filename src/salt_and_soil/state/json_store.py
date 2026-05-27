@@ -7,9 +7,8 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from dataclasses import asdict
 
-from .models import StateFile, SyncJob, FolderDiff
+from .models import StateFile, SyncJob, FolderDiff, STATE_SCHEMA_VERSION
 from ..shared.enums import DiffStatus, SyncAction, JobStatus
 from ..shared.paths import ensure_dir
 
@@ -26,24 +25,32 @@ class JSONStateStore:
             return StateFile(node_name=node_name, role=role)
         try:
             raw = json.loads(self.path.read_text())
-            sf  = StateFile(
-                node_name    = raw.get("node_name", node_name),
-                role         = raw.get("role", role),
-                last_scan_id = raw.get("last_scan_id", ""),
-                last_scan_at = raw.get("last_scan_at", ""),
-                last_sync_at = raw.get("last_sync_at", ""),
+            ver = raw.get("schema_version", 1)
+            if ver != STATE_SCHEMA_VERSION:
+                log.warning(
+                    "state.json schema_version=%s != expected %s — discarding old state",
+                    ver, STATE_SCHEMA_VERSION,
+                )
+                return StateFile(node_name=node_name, role=role)
+            sf = StateFile(
+                node_name      = raw.get("node_name", node_name),
+                role           = raw.get("role", role),
+                schema_version = STATE_SCHEMA_VERSION,
+                last_scan_id   = raw.get("last_scan_id", ""),
+                last_scan_at   = raw.get("last_scan_at", ""),
+                last_sync_at   = raw.get("last_sync_at", ""),
             )
             for j in raw.get("jobs", []):
                 try:
                     sf.jobs.append(SyncJob(
-                        job_id    = j.get("job_id", ""),
-                        sync_root = j.get("sync_root", ""),
-                        folder    = j.get("folder", ""),
-                        action    = SyncAction(j.get("action", "skip")),
-                        status    = JobStatus(j.get("status", "pending")),
-                        started_at        = j.get("started_at", ""),
-                        finished_at       = j.get("finished_at", ""),
-                        error             = j.get("error", ""),
+                        job_id       = j.get("job_id", ""),
+                        source_alias = j.get("source_alias", ""),
+                        folder       = j.get("folder", ""),
+                        action       = SyncAction(j.get("action", "skip")),
+                        status       = JobStatus(j.get("status", "pending")),
+                        started_at   = j.get("started_at", ""),
+                        finished_at  = j.get("finished_at", ""),
+                        error        = j.get("error", ""),
                         bytes_transferred = j.get("bytes_transferred", 0),
                     ))
                 except (KeyError, ValueError) as e:
@@ -51,7 +58,7 @@ class JSONStateStore:
             for d in raw.get("diffs", []):
                 try:
                     sf.diffs.append(FolderDiff(
-                        sync_root      = d.get("sync_root", ""),
+                        source_alias   = d.get("source_alias", ""),
                         name           = d.get("name", ""),
                         diff_status    = DiffStatus(d.get("diff_status", "unknown")),
                         local_size     = d.get("local_size", 0),
@@ -67,28 +74,29 @@ class JSONStateStore:
 
     def save(self, state: StateFile) -> None:
         data = {
-            "node_name":    state.node_name,
-            "role":         state.role,
-            "last_scan_id": state.last_scan_id,
-            "last_scan_at": state.last_scan_at,
-            "last_sync_at": state.last_sync_at,
+            "schema_version": STATE_SCHEMA_VERSION,
+            "node_name":      state.node_name,
+            "role":           state.role,
+            "last_scan_id":   state.last_scan_id,
+            "last_scan_at":   state.last_scan_at,
+            "last_sync_at":   state.last_sync_at,
             "jobs": [
                 {
-                    "job_id":    j.job_id,
-                    "sync_root": j.sync_root,
-                    "folder":    j.folder,
-                    "action":    j.action.value,
-                    "status":    j.status.value,
-                    "started_at":  j.started_at,
-                    "finished_at": j.finished_at,
-                    "error":       j.error,
+                    "job_id":       j.job_id,
+                    "source_alias": j.source_alias,
+                    "folder":       j.folder,
+                    "action":       j.action.value,
+                    "status":       j.status.value,
+                    "started_at":   j.started_at,
+                    "finished_at":  j.finished_at,
+                    "error":        j.error,
                     "bytes_transferred": j.bytes_transferred,
                 }
                 for j in state.jobs
             ],
             "diffs": [
                 {
-                    "sync_root":      d.sync_root,
+                    "source_alias":   d.source_alias,
                     "name":           d.name,
                     "diff_status":    d.diff_status.value,
                     "local_size":     d.local_size,

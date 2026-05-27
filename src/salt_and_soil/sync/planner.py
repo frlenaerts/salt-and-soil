@@ -13,10 +13,10 @@ def build_jobs(diffs: list[FolderDiff]) -> list[SyncJob]:
         if diff.planned_action == SyncAction.SKIP:
             continue
         jobs.append(SyncJob(
-            job_id    = str(uuid.uuid4())[:8],
-            sync_root = diff.sync_root,
-            folder    = diff.name,
-            action    = diff.planned_action,
-            status    = JobStatus.PENDING,
+            job_id       = str(uuid.uuid4())[:8],
+            source_alias = diff.source_alias,
+            folder       = diff.name,
+            action       = diff.planned_action,
+            status       = JobStatus.PENDING,
         ))
     return jobs

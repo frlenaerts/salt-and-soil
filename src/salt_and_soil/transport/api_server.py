@@ -332,17 +332,24 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
 
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request):
-        agent     = cfg.agents[0] if cfg.agents else None
-        agent_str = agent.name if agent else ""
         user      = auth_store.load()
+        agent_str = ", ".join(a.name for a in cfg.agents)
         return templates.TemplateResponse("index.html", {
-            "request":    request,
-            "node_name":  cfg.app.node_name,
-            "sync_roots": cfg.sync.sync_roots,
-            "nas_source": f"{cfg.mount.remote_host}:{cfg.mount.remote_share}",
-            "local_path": cfg.mount.local_mount_path,
-            "agent_str":  agent_str,
-            "username":   user.username,
+            "request":   request,
+            "node_name": cfg.app.node_name,
+            "aliases":   [s.alias for s in cfg.sources],
+            "sources":   [
+                {
+                    "alias":       s.alias,
+                    "agent":       s.agent,
+                    "local_host":  s.local_host,
+                    "local_share": s.local_share,
+                    "local_path":  s.local_path,
+                }
+                for s in cfg.sources
+            ],
+            "agent_str": agent_str,
+            "username":  user.username,
         })
 
     @app.post("/api/start")
@@ -381,7 +388,7 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
                             "status":       snap["status"],
                             "new_log":      new_log,
                             "diffs":        snap["diffs"] if snap["status"] in ("ready", "syncing", "done") else [],
-                            "mount":        snap.get("mount"),
+                            "mounts":       snap.get("mounts", []),
                             "error":        snap.get("error"),
                             "last_scan_at": snap.get("last_scan_at"),
                             "schedule":     snap.get("schedule"),
@@ -470,9 +477,23 @@ def _register_agent_routes(app: FastAPI, cfg: Config, rt):
 
     protected = [Depends(require_api_key)]
 
+    def _require_alias(alias: str | None) -> str:
+        if not alias:
+            raise HTTPException(400, "Missing 'alias'")
+        if alias not in rt.sources_by_alias:
+            raise HTTPException(
+                400,
+                f"Unknown source alias '{alias}' "
+                f"(known: {sorted(rt.sources_by_alias.keys())})",
+            )
+        return alias
+
     @app.post("/mount", dependencies=protected)
-    async def mount():
-        info = await rt.nfs.mount()
+    async def mount(request: Request):
+        body  = await request.json() if await _has_body(request) else {}
+        alias = _require_alias(body.get("alias"))
+        nfs   = rt.mount_for(alias)
+        info  = await nfs.mount()
         return JSONResponse(MountResponse(
             ok          = info.is_ok,
             mounted     = info.status.value == "mounted",
@@ -483,34 +504,62 @@ def _register_agent_routes(app: FastAPI, cfg: Config, rt):
         ).to_dict())
 
     @app.post("/unmount", dependencies=protected)
-    async def unmount():
-        ok = await rt.nfs.unmount()
+    async def unmount(request: Request):
+        body  = await request.json() if await _has_body(request) else {}
+        alias = body.get("alias")
+        if alias:
+            _require_alias(alias)
+            ok = await rt.mount_for(alias).unmount()
+            return JSONResponse(MountResponse(
+                ok=ok, mounted=False,
+                msg="Unmounted" if ok else "Error",
+            ).to_dict())
+        # No alias → unmount everything currently registered
+        results = await asyncio.gather(*[m.unmount() for m in rt.registry.all()])
+        ok = all(results) if results else True
         return JSONResponse(MountResponse(
             ok=ok, mounted=False,
-            msg="Unmounted" if ok else "Error",
+            msg=f"Unmounted {sum(results)} of {len(results)}" if results else "No mounts",
         ).to_dict())
 
     @app.get("/status", dependencies=protected)
     async def status():
-        info = await rt.nfs.info()
+        mounts: list[dict] = []
+        for alias, src in rt.sources_by_alias.items():
+            nfs  = rt.mount_for(alias)
+            info = await nfs.info()
+            mounts.append({
+                "alias":       alias,
+                "host":        src.local_host,
+                "share":       src.local_share,
+                "mount_point": nfs.mount_point,
+                "mounted":     info.status.value == "mounted",
+                "total_bytes": info.total_bytes,
+                "free_bytes":  info.free_bytes,
+                "error":       info.error,
+            })
         return JSONResponse(StatusResponse(
-            ok          = True,
-            node_name   = cfg.app.node_name,
-            mounted     = info.status.value == "mounted",
-            mount_point = cfg.mount.local_mount_path,
-            nas_host    = cfg.mount.remote_host,
-            total_bytes = info.total_bytes,
-            free_bytes  = info.free_bytes,
-            error       = info.error,
+            ok        = True,
+            node_name = cfg.app.node_name,
+            mounts    = mounts,
         ).to_dict())
 
     @app.get("/list", dependencies=protected)
-    async def list_dirs(root: str = "videos"):
-        if root not in cfg.sync.sync_roots:
-            raise HTTPException(400, f"Sync root '{root}' not allowed")
-        dirs = await rt.scan_root(root)
-        return JSONResponse(ListDirsResponse(sync_root=root, dirs=dirs).to_dict())
+    async def list_dirs(alias: str | None = None):
+        a = _require_alias(alias)
+        dirs = await rt.list_alias(a)
+        return JSONResponse(ListDirsResponse(source_alias=a, dirs=dirs).to_dict())
 
     @app.get("/health")
     async def health():
         return {"ok": True, "node": cfg.app.node_name}
+
+
+async def _has_body(request: Request) -> bool:
+    """True iff request has a non-empty body. Used to keep `POST /unmount` with
+    no body working as 'unmount all'."""
+    ctype = request.headers.get("content-type", "")
+    if "json" not in ctype:
+        return False
+    body = await request.body()
+    return len(body) > 0

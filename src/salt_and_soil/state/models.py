@@ -3,9 +3,14 @@ from dataclasses import dataclass, field
 from ..shared.enums import DiffStatus, SyncAction, JobStatus
 
 
+STATE_SCHEMA_VERSION = 2  # bumped from implicit v1 when sync_root → source_alias
+
+
 @dataclass
 class FolderDiff:
-    sync_root: str
+    """One folder seen on the local and/or remote side of a source.
+    `source_alias` identifies which [[sources]] entry this belongs to."""
+    source_alias: str
     name: str
     diff_status: DiffStatus
     local_size: int  = 0
@@ -26,7 +31,7 @@ class FolderDiff:
 @dataclass
 class SyncJob:
     job_id: str
-    sync_root: str
+    source_alias: str
     folder: str
     action: SyncAction
     status: JobStatus = JobStatus.PENDING
@@ -40,6 +45,7 @@ class SyncJob:
 class StateFile:
     node_name: str
     role: str
+    schema_version: int = STATE_SCHEMA_VERSION
     last_scan_id: str = ""
     last_scan_at: str = ""
     last_sync_at: str = ""

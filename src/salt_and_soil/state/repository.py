@@ -24,8 +24,8 @@ class StateRepository:
     def save_snapshot(self, snap: ScanSnapshot):
         return self.snapshots.save(snap)
 
-    def load_latest_snapshot(self, sync_root: str) -> ScanSnapshot | None:
-        return self.snapshots.load_latest(sync_root)
+    def load_latest_snapshot(self, alias: str) -> ScanSnapshot | None:
+        return self.snapshots.load_latest(alias)
 
     def list_snapshots(self) -> list[dict]:
         return self.snapshots.list_snapshots()

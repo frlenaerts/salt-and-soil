@@ -8,16 +8,16 @@ from ..shared.enums import SyncAction
 
 @dataclass
 class ActionItem:
-    sync_root: str
-    folder:    str
-    action:    SyncAction
+    source_alias: str
+    folder:       str
+    action:       SyncAction
 
     @classmethod
     def from_dict(cls, d: dict) -> "ActionItem":
         return cls(
-            sync_root = d["sync_root"],
-            folder    = d["folder"],
-            action    = SyncAction(d["action"]),
+            source_alias = d["source_alias"],
+            folder       = d["folder"],
+            action       = SyncAction(d["action"]),
         )
 
 
@@ -41,17 +41,17 @@ class DirEntry:
 
 @dataclass
 class ListDirsResponse:
-    sync_root: str
-    dirs:      list[DirEntry]
+    source_alias: str
+    dirs:         list[DirEntry]
 
     def to_dict(self) -> dict:
-        return {"sync_root": self.sync_root, "dirs": [d.to_dict() for d in self.dirs]}
+        return {"source_alias": self.source_alias, "dirs": [d.to_dict() for d in self.dirs]}
 
     @classmethod
     def from_dict(cls, d: dict) -> "ListDirsResponse":
         return cls(
-            sync_root = d["sync_root"],
-            dirs      = [DirEntry(**e) for e in d.get("dirs", [])],
+            source_alias = d["source_alias"],
+            dirs         = [DirEntry(**e) for e in d.get("dirs", [])],
         )
 
 
@@ -74,29 +74,25 @@ class MountResponse:
 
 @dataclass
 class StatusResponse:
-    ok:          bool
-    node_name:   str
-    mounted:     bool
-    mount_point: str
-    nas_host:    str
-    total_bytes: int = 0
-    free_bytes:  int = 0
-    error:       str = ""
+    ok:        bool
+    node_name: str
+    mounts:    list[dict]   # [{alias, host, share, mount_point, mounted, total_bytes, free_bytes, error}]
+    error:     str = ""
 
     def to_dict(self) -> dict:
         return {
-            "ok": self.ok, "node_name": self.node_name,
-            "mounted": self.mounted, "mount_point": self.mount_point,
-            "nas_host": self.nas_host, "total_bytes": self.total_bytes,
-            "free_bytes": self.free_bytes, "error": self.error,
+            "ok": self.ok,
+            "node_name": self.node_name,
+            "mounts": self.mounts,
+            "error": self.error,
         }
 
 
 @dataclass
 class SnapshotMeta:
-    file:        str
-    snapshot_id: str
-    sync_root:   str
-    scanned_at:  str
-    entry_count: int
-    total_size:  int
+    file:         str
+    snapshot_id:  str
+    source_alias: str
+    scanned_at:   str
+    entry_count:  int
+    total_size:   int
