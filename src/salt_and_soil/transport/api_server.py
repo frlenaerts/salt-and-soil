@@ -375,6 +375,13 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
                         break
                     snap = rt.snapshot_for_ui()
                     cur_total = snap.get("log_total", len(snap["log"]))
+                    # Reset detection: when /api/start runs rt.reset(), log_total
+                    # drops back to 0 but our sent_total still holds the previous
+                    # run's tally. Without this, the first burst of log lines
+                    # after a reset (typically the mount lines) gets dropped
+                    # because the delta computation goes negative.
+                    if cur_total < sent_total:
+                        sent_total = 0
                     if snap["status"] != sent_status or cur_total != sent_total:
                         log_list  = snap["log"]
                         new_count = cur_total - sent_total
