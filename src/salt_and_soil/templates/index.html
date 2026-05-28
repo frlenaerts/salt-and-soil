@@ -176,6 +176,35 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
 .cancel-confirm .btn-no  { background: #fff; color: var(--text-mid); border-color: var(--border-mid); }
 .cancel-confirm .btn-no:hover { border-color: var(--teal); color: var(--teal); }
 
+/* ── Bulk-action select in source-group header ── */
+.root-cell-inner {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.bulk-select {
+  font-family: var(--sans); font-size: 11px; font-weight: 500;
+  padding: 3px 8px; border-radius: 4px;
+  border: 1px solid var(--teal-mid);
+  background: #fff; color: var(--teal-dark);
+  cursor: pointer; text-transform: none; letter-spacing: 0;
+}
+.bulk-select:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Bulk-confirm strookje (mirror confirmation) — amber, distinct from cancel-confirm ── */
+.bulk-confirm {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 14px; padding: 12px 16px; margin-bottom: 10px;
+  background: #FFF7ED; color: #9A3412;
+  border: 1px solid #FDBA74; border-radius: var(--r);
+  font-size: 14px; flex-wrap: wrap;
+}
+.bulk-confirm .msg { flex: 1; }
+.bulk-confirm .actions { display: flex; gap: 8px; }
+.bulk-confirm .btn-sm { padding: 6px 14px; font-size: 13px; font-weight: 600; border-radius: 6px; cursor: pointer; border: 1px solid transparent; }
+.bulk-confirm .btn-yes { background: var(--red); color: #fff; }
+.bulk-confirm .btn-yes:hover { filter: brightness(0.92); }
+.bulk-confirm .btn-no  { background: #fff; color: var(--text-mid); border-color: var(--border-mid); }
+.bulk-confirm .btn-no:hover  { border-color: var(--teal); color: var(--teal); }
+
 /* ── Action row ── */
 .action-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 
@@ -759,6 +788,70 @@ async function startScan() {
   connectSSE();
 }
 
+// ── Bulk action per source group ──────────────────────────────────────────────
+// Three presets that bulk-assign per-row actions in one go:
+//   mirror        → make remote a 1:1 copy of local (skip / sync / delete_remote)
+//   sync_changes  → push added + changed, leave remote-only alone
+//   skip_all      → reset every row in the group to skip
+// Destructive Mirror prompts confirmation first; the others apply immediately.
+function onBulkAction(sel, alias) {
+  const preset = sel.value;
+  sel.value = '';                       // always reset to placeholder
+  if (!preset) return;
+  if (preset === 'mirror') {
+    showMirrorConfirm(alias);
+  } else {
+    applyGroupPreset(alias, preset);
+  }
+}
+
+function applyGroupPreset(alias, preset) {
+  diffs.filter(d => d.source_alias === alias).forEach(d => {
+    const allowed = (ACTION_OPTS[d.diff_status] || []).map(([v]) => v);
+    let next;
+    if (preset === 'mirror') {
+      next = d.diff_status === 'in_sync'      ? 'skip'
+           : d.diff_status === 'remote_only'  ? 'delete_remote'
+           : 'sync';
+    } else if (preset === 'sync_changes') {
+      next = (d.diff_status === 'needs_sync' || d.diff_status === 'local_only') ? 'sync' : 'skip';
+    } else if (preset === 'skip_all') {
+      next = 'skip';
+    }
+    if (allowed.includes(next)) actions[key(d)] = next;
+  });
+  renderFolders();
+}
+
+function showMirrorConfirm(alias) {
+  const groupDiffs = diffs.filter(d => d.source_alias === alias);
+  const willDelete = groupDiffs.filter(d => d.diff_status === 'remote_only').length;
+  const willSync   = groupDiffs.filter(d => d.diff_status === 'needs_sync' || d.diff_status === 'local_only').length;
+  hideBulkConfirm();
+  const c = document.createElement('div');
+  c.id = 'bulk-confirm';
+  c.className = 'bulk-confirm';
+  const msg = document.createElement('span');
+  msg.className = 'msg';
+  msg.innerHTML = `⚠ Mirror <b>${esc(alias)}</b> to remote — will sync ${willSync} folder(s) and <b>delete ${willDelete}</b> remote-only folder(s). This cannot be undone.`;
+  const acts = document.createElement('div');
+  acts.className = 'actions';
+  const no = document.createElement('button');
+  no.className = 'btn-sm btn-no'; no.textContent = 'Cancel';
+  no.onclick = hideBulkConfirm;
+  const yes = document.createElement('button');
+  yes.className = 'btn-sm btn-yes'; yes.textContent = 'Apply mirror';
+  yes.onclick = () => { hideBulkConfirm(); applyGroupPreset(alias, 'mirror'); };
+  acts.append(no, yes);
+  c.append(msg, acts);
+  document.getElementById('folders-area').prepend(c);
+}
+
+function hideBulkConfirm() {
+  const c = document.getElementById('bulk-confirm');
+  if (c) c.remove();
+}
+
 // ── Collapsible source rows ───────────────────────────────────────────────────
 function toggleRoot(alias) {
   collapsed[alias] = !collapsed[alias];
@@ -799,13 +892,29 @@ function renderFolders() {
   area.innerHTML = html;
 
   const tbody = document.getElementById('diff-tbody');
+  const busy  = ['mounting','scanning','syncing'].includes(status);
   aliases.forEach(alias => {
     if (!(alias in collapsed)) collapsed[alias] = true;  // default collapsed
     const isCollapsed = collapsed[alias];
     const tr = document.createElement('tr');
     tr.className = 'root-row';
     tr.onclick = () => toggleRoot(alias);
-    tr.innerHTML = `<td colspan="5"><span class="root-icon" id="${rootId(alias)}">${isCollapsed ? '▶' : '▼'}</span>${esc(alias)}</td>`;
+    tr.innerHTML = `
+      <td colspan="5">
+        <div class="root-cell-inner">
+          <span><span class="root-icon" id="${rootId(alias)}">${isCollapsed ? '▶' : '▼'}</span>${esc(alias)}</span>
+          <select class="bulk-select" ${busy ? 'disabled' : ''}>
+            <option value="">Bulk action…</option>
+            <option value="mirror">↑ Mirror to remote</option>
+            <option value="sync_changes">↑ Sync added &amp; changed</option>
+            <option value="skip_all">— Skip all</option>
+          </select>
+        </div>
+      </td>`;
+    // Stop click + change from bubbling to the row (which would toggle collapse)
+    const bulkSel = tr.querySelector('.bulk-select');
+    bulkSel.addEventListener('click',  e => e.stopPropagation());
+    bulkSel.addEventListener('change', e => { e.stopPropagation(); onBulkAction(bulkSel, alias); });
     tbody.appendChild(tr);
 
     grouped[alias].forEach(d => {
