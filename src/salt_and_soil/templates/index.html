@@ -693,7 +693,7 @@ function connectSSE() {
       if (d.cancelled) {
         showBanner('error', '✕ Sync cancelled — folder status refreshed');
       } else {
-        showBanner('done', '✓ Sync complete — NAS devices can go to sleep now 🛌');
+        showBanner('done', '✓ Sync complete — storage can go to sleep now 🛌');
       }
     }
     if (d.status === 'done') onDone();
@@ -931,7 +931,7 @@ function confirmCancel() {
 
 function onDone() {
   setStatus('done');
-  showBanner('done', '✓ Sync complete — NAS devices can go to sleep now 🛌');
+  showBanner('done', '✓ Sync complete — storage can go to sleep now 🛌');
 }
 
 function showBanner(type, msg) {
