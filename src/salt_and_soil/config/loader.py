@@ -78,8 +78,13 @@ def load(path: str | Path | None = None) -> Config:
         if _ep.exists():
             for ln in _ep.read_text(encoding="utf-8").splitlines():
                 s = ln.strip()
-                if s and not s.startswith("#"):
-                    _excludes.append(s)
+                if not s or s.startswith("#"):
+                    continue
+                # gitignore-style: '\#' at the start of a pattern is a literal '#'
+                # (e.g. Synology's '#recycle' folder). Strip the leading backslash.
+                if s.startswith("\\#"):
+                    s = s[1:]
+                _excludes.append(s)
     sync = SyncConfig(
         scan_on_startup   = sync_raw.get("scan_on_startup", False),
         auto_resume       = sync_raw.get("auto_resume", True),

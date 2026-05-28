@@ -8,6 +8,9 @@
 *@SynoEAStream
 *@SynoResource
 .SynologyWorkingDirectory
+# Synology recycle bin — the leading backslash escapes the '#' so it's
+# treated as a literal pattern, not a comment line.
+\#recycle
 
 # macOS
 .DS_Store

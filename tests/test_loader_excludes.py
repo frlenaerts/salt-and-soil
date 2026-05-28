@@ -96,3 +96,20 @@ def test_excludes_strips_whitespace(tmp_path):
     exc.write_text("  @eaDir  \n\t.DS_Store\n")
     cfg = load(_write_cfg(tmp_path, str(exc).replace("\\", "/")))
     assert cfg.sync.excludes == ["@eaDir", ".DS_Store"]
+
+
+def test_excludes_escape_for_literal_hash(tmp_path):
+    """gitignore-style: '\\#recycle' becomes literal '#recycle' (not a comment)."""
+    exc = tmp_path / "excludes.list"
+    exc.write_text("# real comment\n\\#recycle\n@eaDir\n")
+    cfg = load(_write_cfg(tmp_path, str(exc).replace("\\", "/")))
+    assert cfg.sync.excludes == ["#recycle", "@eaDir"]
+
+
+def test_excludes_unescaped_hash_is_comment(tmp_path):
+    """A bare '#recycle' line is still treated as a comment (would silently
+    fail to match — the user must use '\\#recycle' to mean a literal '#')."""
+    exc = tmp_path / "excludes.list"
+    exc.write_text("#recycle\n@eaDir\n")
+    cfg = load(_write_cfg(tmp_path, str(exc).replace("\\", "/")))
+    assert cfg.sync.excludes == ["@eaDir"]

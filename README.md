@@ -284,7 +284,7 @@ Referenced from `config.toml`:
 exclude_file = "./config/excludes.list"
 ```
 
-One pattern per line; `#` starts a comment; `*`, `?`, `[..]` work (rsync/fnmatch style). The same file is applied by:
+One pattern per line; `#` starts a comment; `*`, `?`, `[..]` work (rsync/fnmatch style). To match a literal `#` at the start of a name (e.g. Synology's `#recycle` folder), escape it as `\#recycle`. The same file is applied by:
 
 - **`du`** during scan (size calculation)
 - **`rsync`** during sync (via `--exclude-from`)
