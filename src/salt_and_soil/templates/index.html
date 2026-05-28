@@ -57,6 +57,7 @@ header {
 }
 .logo-mark img { width: 100%; height: 100%; object-fit: contain; }
 .logo-text { font-weight: 600; font-size: 16px; letter-spacing: -.3px; }
+.logo-version { font-size: 11px; color: var(--text-dim); margin-left: 6px; font-weight: 400; }
 .logo-node { font-size: 11px; color: var(--text-dim); margin-top: 1px; }
 
 .status-chip {
@@ -346,7 +347,7 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
   <div class="logo">
     <div class="logo-mark"><img src="/static/logo_124x124.png" alt="Salt &amp; Soil"></div>
     <div>
-      <div class="logo-text">Salt &amp; Soil</div>
+      <div class="logo-text">Salt &amp; Soil<span class="logo-version">v{{ version }}</span></div>
       <div class="logo-node" id="node-label">Orchestrator</div>
     </div>
   </div>

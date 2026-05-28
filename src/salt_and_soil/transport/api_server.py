@@ -21,6 +21,7 @@ from fastapi.templating import Jinja2Templates
 
 import math
 
+from .. import __version__
 from ..auth import (
     AuthStore, LoginThrottle, hash_password, verify_password,
     make_session_token, verify_session_token,
@@ -336,6 +337,7 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
         agent_str = ", ".join(a.name for a in cfg.agents)
         return templates.TemplateResponse("index.html", {
             "request":   request,
+            "version":   __version__,
             "node_name": cfg.app.node_name,
             "aliases":   [s.alias for s in cfg.sources],
             "sources":   [
