@@ -833,7 +833,7 @@ function showMirrorConfirm(alias) {
   c.className = 'bulk-confirm';
   const msg = document.createElement('span');
   msg.className = 'msg';
-  msg.innerHTML = `⚠ Mirror <b>${esc(alias)}</b> to remote — will sync ${willSync} folder(s) and <b>delete ${willDelete}</b> remote-only folder(s). This cannot be undone.`;
+  msg.innerHTML = `⚠ Mirror <b>${esc(alias)}</b> to remote — will sync ${willSync} folder(s) and <b>delete ${willDelete}</b> remote-only folder(s).`;
   const acts = document.createElement('div');
   acts.className = 'actions';
   const no = document.createElement('button');
