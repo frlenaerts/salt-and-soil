@@ -218,7 +218,7 @@ class OrchestratorRuntime:
         unique_pairs = sorted({(s.local_host, s.local_share) for s in self.cfg.sources})
         self._mounts_info = []
         for host, share in unique_pairs:
-            self._info(f"[{self._node}] Mounting {host}:{share}...")
+            self._info(f"[{self._node}] Mounting {share}...")
             nfs  = self.registry.get_or_create(host, share)
             info = await nfs.mount()
             self._mounts_info.append({
@@ -232,24 +232,30 @@ class OrchestratorRuntime:
                 "free":        human_size(info.free_bytes),
             })
             assert_mount_ok(info)
-            self._info(f"[{self._node}] Mounted — {human_size(info.total_bytes)} total, {human_size(info.free_bytes)} free")
+            self._info(f"[{self._node}] Mounted {share} — {human_size(info.total_bytes)} total, {human_size(info.free_bytes)} free")
             if is_path_empty(nfs.mount_point):
                 raise MountCheckError(f"Mount path {nfs.mount_point} is empty — NFS share may not be configured correctly")
 
-        # 2. Remote: per agent, mount every source that points at it
+        # 2. Remote: call agent.mount() for every alias (the agent's own
+        # MountRegistry dedups internally), but log only one line per unique
+        # remote_share so the orchestrator's log mirrors the local section.
         remote_mount_points: dict[str, str] = {}
         for agent_name, agent in self.agent_clients.items():
-            aliases_for_agent = [s.alias for s in self.cfg.sources if s.agent == agent_name]
-            for alias in aliases_for_agent:
-                self._info(f"[{agent_name}] Mounting source '{alias}'...")
-                resp = await agent.mount(alias)
+            logged_shares: set[str] = set()
+            for src in (s for s in self.cfg.sources if s.agent == agent_name):
+                first_for_share = src.remote_share not in logged_shares
+                if first_for_share:
+                    self._info(f"[{agent_name}] Mounting {src.remote_share}...")
+                resp = await agent.mount(src.alias)
                 if not resp.ok:
-                    raise RuntimeError(f"[{agent_name}] Mount '{alias}' failed: {resp.error}")
-                size_info = (
-                    f" — {human_size(resp.total_bytes)} total, {human_size(resp.free_bytes)} free"
-                    if resp.total_bytes else ""
-                )
-                self._info(f"[{agent_name}] Mounted '{alias}'{size_info}")
+                    raise RuntimeError(f"[{agent_name}] Mount {src.remote_share} failed: {resp.error}")
+                if first_for_share:
+                    logged_shares.add(src.remote_share)
+                    size_info = (
+                        f" — {human_size(resp.total_bytes)} total, {human_size(resp.free_bytes)} free"
+                        if resp.total_bytes else ""
+                    )
+                    self._info(f"[{agent_name}] Mounted {src.remote_share}{size_info}")
 
             # Pull mount points from /status so we know where the agent actually mounted
             try:
@@ -263,18 +269,27 @@ class OrchestratorRuntime:
         return remote_mount_points
 
     async def _do_unmount_all(self) -> None:
+        # Local: one log line per share
         for nfs in self.registry.all():
             try:
                 await nfs.unmount()
-                self._info(f"[{self._node}] Unmounted {nfs.host}:{nfs.share}")
+                self._info(f"[{self._node}] Unmounted {nfs.share}")
             except Exception as e:
-                self._err(f"[{self._node}] Unmount {nfs.host}:{nfs.share} failed: {e}")
+                self._err(f"[{self._node}] Unmount {nfs.share} failed: {e}")
+        # Remote: unmount every alias (agent dedups internally), log once per share
         for agent_name, agent in self.agent_clients.items():
-            try:
-                await agent.unmount()
-                self._info(f"[{agent_name}] Unmounted all")
-            except Exception as e:
-                self._err(f"[{agent_name}] Unmount failed: {e}")
+            logged_shares: set[str] = set()
+            for src in (s for s in self.cfg.sources if s.agent == agent_name):
+                first_for_share = src.remote_share not in logged_shares
+                try:
+                    await agent.unmount(src.alias)
+                    if first_for_share:
+                        logged_shares.add(src.remote_share)
+                        self._info(f"[{agent_name}] Unmounted {src.remote_share}")
+                except Exception as e:
+                    if first_for_share:
+                        logged_shares.add(src.remote_share)
+                        self._err(f"[{agent_name}] Unmount {src.remote_share} failed: {e}")
 
     async def _do_scan_and_compare(self) -> None:
         """Scan both sides, compare, persist diffs. Assumes mounts are active."""
