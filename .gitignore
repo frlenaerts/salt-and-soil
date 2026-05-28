@@ -11,3 +11,4 @@ config.toml
 data/
 docs/
 .claude/
+.local/
