@@ -22,7 +22,8 @@ def main():
     sub.add_parser("test-mount", help="Mount, scan, show UI, unmount on stop")
 
     scan_p = sub.add_parser("scan", help="Scan and dump result (no UI)")
-    scan_p.add_argument("--root", default=None)
+    scan_p.add_argument("--alias", default=None,
+                        help="Only scan the source with this alias (default: all)")
 
     args = parser.parse_args()
 
@@ -34,7 +35,7 @@ def main():
     elif args.command == "test-mount":
         _cmd_test_mount()
     elif args.command == "scan":
-        _cmd_scan(args.root)
+        _cmd_scan(args.alias)
     else:
         parser.print_help()
 
@@ -57,18 +58,29 @@ def _cmd_test_mount():
     asyncio.run(run_test())
 
 
-def _cmd_scan(root: str | None):
+def _cmd_scan(alias: str | None):
     import asyncio
+    import posixpath
     from .config import load as load_config
+    from .mounts.registry import MountRegistry
     from .scanner.scanner import DirScanner
     from .shared.paths import human_size
 
     async def _scan():
-        cfg     = load_config()
-        roots   = [root] if root else cfg.sync.sync_roots
-        scanner = DirScanner(cfg.mount.local_mount_path, roots, cfg.app.node_name, cfg.sync.excludes)
-        for snap in await scanner.scan_all():
-            print(f"\n/{snap.sync_root}  ({snap.entry_count} mappen, {human_size(snap.total_size)})")
+        cfg      = load_config()
+        registry = MountRegistry(cfg.mount_defaults, side="local")
+        scanner  = DirScanner(cfg.app.node_name, cfg.sync.excludes)
+
+        sources = [s for s in cfg.sources if alias is None or s.alias == alias]
+        if alias and not sources:
+            print(f"Unknown alias '{alias}'. Known: {[s.alias for s in cfg.sources]}")
+            return
+
+        for src in sources:
+            nfs       = registry.get_or_create(src.local_host, src.local_share)
+            scan_path = posixpath.join(nfs.mount_point, src.local_path) if src.local_path else nfs.mount_point
+            snap      = await scanner.scan_source(scan_path, src.alias)
+            print(f"\n{src.alias}  ({snap.entry_count} folders, {human_size(snap.total_size)})")
             for e in snap.top_level_dirs():
                 print(f"  {e.relative_path:<40} {e.size_hr()}")
 

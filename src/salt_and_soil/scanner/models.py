@@ -5,7 +5,7 @@ from datetime import datetime
 
 @dataclass
 class ScanEntry:
-    relative_path: str          # POSIX relative path from sync_root
+    relative_path: str          # POSIX relative path from the source's scan_path
     entry_type: str             # "dir" | "file"
     size: int                   # bytes (recursive for dirs)
     mtime_utc: datetime | None
@@ -22,7 +22,7 @@ class ScanEntry:
 class ScanSnapshot:
     snapshot_id: str
     node_name: str
-    sync_root: str
+    source_alias: str
     scanned_at: str             # ISO string
     entries: list[ScanEntry] = field(default_factory=list)
     entry_count: int = 0
@@ -30,5 +30,5 @@ class ScanSnapshot:
     error: str = ""
 
     def top_level_dirs(self) -> list[ScanEntry]:
-        """Only direct children of sync_root (depth 1)."""
+        """Only direct children of the scan path (depth 1)."""
         return [e for e in self.entries if "/" not in e.relative_path and e.entry_type == "dir"]

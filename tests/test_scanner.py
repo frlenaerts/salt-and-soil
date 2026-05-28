@@ -15,9 +15,9 @@ from salt_and_soil.state.json_store import JSONStateStore
 from salt_and_soil.shared.enums import DiffStatus, SyncAction
 
 
-def _snap(root, dirs):
+def _snap(alias, dirs):
     entries = [ScanEntry(relative_path=n, entry_type="dir", size=s, mtime_utc=None) for n,s in dirs.items()]
-    return ScanSnapshot(snapshot_id="t", node_name="n", sync_root=root, scanned_at="2026-01-01",
+    return ScanSnapshot(snapshot_id="t", node_name="n", source_alias=alias, scanned_at="2026-01-01",
                         entries=entries, entry_count=len(entries), total_size=sum(dirs.values()))
 
 
@@ -27,16 +27,27 @@ def test_scanner_finds_dirs():
         (root / "film-a").mkdir(parents=True)
         (root / "film-b").mkdir(parents=True)
         (root / "file.txt").write_text("x")
-        scanner = DirScanner(tmp, ["videos"], "test")
-        snaps = asyncio.run(scanner.scan_all())
-        assert {e.relative_path for e in snaps[0].top_level_dirs()} == {"film-a", "film-b"}
+        scanner = DirScanner("test")
+        snap = asyncio.run(scanner.scan_source(root, "videos"))
+        assert {e.relative_path for e in snap.top_level_dirs()} == {"film-a", "film-b"}
 
 
-def test_scanner_missing_root():
+def test_scanner_missing_path():
     with tempfile.TemporaryDirectory() as tmp:
-        scanner = DirScanner(tmp, ["nonexistent"], "test")
-        snaps = asyncio.run(scanner.scan_all())
-        assert snaps[0].entry_count == 0
+        scanner = DirScanner("test")
+        snap = asyncio.run(scanner.scan_source(Path(tmp) / "nonexistent", "videos"))
+        assert snap.entry_count == 0
+        assert "does not exist" in snap.error.lower()
+
+
+def test_scanner_with_empty_local_path(tmp_path):
+    """Music-like setup: scan_path is the share root itself (local_path='')."""
+    (tmp_path / "album-a").mkdir()
+    (tmp_path / "album-b").mkdir()
+    scanner = DirScanner("test")
+    snap = asyncio.run(scanner.scan_source(tmp_path, "music"))
+    assert {e.relative_path for e in snap.entries} == {"album-a", "album-b"}
+    assert snap.source_alias == "music"
 
 
 def test_compare_in_sync():

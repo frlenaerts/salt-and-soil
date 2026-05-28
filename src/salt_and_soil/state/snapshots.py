@@ -5,11 +5,17 @@ One file per scan run: data/state/snapshots/2026-04-16T21-30-00__videos.json
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 from ..scanner.models import ScanSnapshot, ScanEntry
 from ..shared.paths import ensure_dir
+
+
+def _safe_name(alias: str) -> str:
+    """Filesystem-safe slug of an alias. Aliases like 'TV Series' or 'a/b'
+    must not break the path."""
+    return alias.replace("/", "_").replace("\\", "_").replace(" ", "-")
 
 
 class SnapshotManager:
@@ -18,16 +24,16 @@ class SnapshotManager:
         ensure_dir(self.dir)
 
     def save(self, snap: ScanSnapshot) -> Path:
-        fname = f"{snap.snapshot_id}__{snap.sync_root.replace('/', '_')}.json"
+        fname = f"{snap.snapshot_id}__{_safe_name(snap.source_alias)}.json"
         path  = self.dir / fname
         data = {
-            "snapshot_id": snap.snapshot_id,
-            "node_name":   snap.node_name,
-            "sync_root":   snap.sync_root,
-            "scanned_at":  snap.scanned_at,
-            "entry_count": snap.entry_count,
-            "total_size":  snap.total_size,
-            "error":       snap.error,
+            "snapshot_id":  snap.snapshot_id,
+            "node_name":    snap.node_name,
+            "source_alias": snap.source_alias,
+            "scanned_at":   snap.scanned_at,
+            "entry_count":  snap.entry_count,
+            "total_size":   snap.total_size,
+            "error":        snap.error,
             "entries": [
                 {
                     "relative_path":    e.relative_path,
@@ -44,7 +50,7 @@ class SnapshotManager:
         return path
 
     def load(self, path: Path) -> ScanSnapshot:
-        raw   = json.loads(path.read_text())
+        raw     = json.loads(path.read_text())
         entries = []
         for e in raw.get("entries", []):
             mtime = None
@@ -62,18 +68,18 @@ class SnapshotManager:
                 fingerprint_value = e.get("fingerprint_value", ""),
             ))
         return ScanSnapshot(
-            snapshot_id = raw.get("snapshot_id", ""),
-            node_name   = raw.get("node_name", ""),
-            sync_root   = raw.get("sync_root", ""),
-            scanned_at  = raw.get("scanned_at", ""),
-            entry_count = raw.get("entry_count", 0),
-            total_size  = raw.get("total_size", 0),
-            error       = raw.get("error", ""),
-            entries     = entries,
+            snapshot_id  = raw.get("snapshot_id", ""),
+            node_name    = raw.get("node_name", ""),
+            source_alias = raw.get("source_alias", ""),
+            scanned_at   = raw.get("scanned_at", ""),
+            entry_count  = raw.get("entry_count", 0),
+            total_size   = raw.get("total_size", 0),
+            error        = raw.get("error", ""),
+            entries      = entries,
         )
 
-    def load_latest(self, sync_root: str) -> ScanSnapshot | None:
-        pattern = f"*__{sync_root.replace('/', '_')}.json"
+    def load_latest(self, alias: str) -> ScanSnapshot | None:
+        pattern = f"*__{_safe_name(alias)}.json"
         files   = sorted(self.dir.glob(pattern))
         if not files:
             return None
@@ -85,12 +91,12 @@ class SnapshotManager:
             try:
                 raw = json.loads(f.read_text())
                 result.append({
-                    "file":        f.name,
-                    "snapshot_id": raw.get("snapshot_id", ""),
-                    "sync_root":   raw.get("sync_root", ""),
-                    "scanned_at":  raw.get("scanned_at", ""),
-                    "entry_count": raw.get("entry_count", 0),
-                    "total_size":  raw.get("total_size", 0),
+                    "file":         f.name,
+                    "snapshot_id":  raw.get("snapshot_id", ""),
+                    "source_alias": raw.get("source_alias", ""),
+                    "scanned_at":   raw.get("scanned_at", ""),
+                    "entry_count":  raw.get("entry_count", 0),
+                    "total_size":   raw.get("total_size", 0),
                 })
             except Exception:
                 continue

@@ -48,7 +48,7 @@ def compare(
             action = SyncAction.SKIP
 
         diffs.append(FolderDiff(
-            sync_root      = local.sync_root,
+            source_alias   = local.source_alias,
             name           = name,
             diff_status    = status,
             local_size     = loc.size  if loc else 0,

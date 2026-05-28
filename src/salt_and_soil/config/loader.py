@@ -16,8 +16,8 @@ except ImportError:
         raise ImportError("Install 'tomli' for Python < 3.11:  pip install tomli")
 
 from .models import (
-    AppConfig, ServerConfig, AuthConfig,
-    MountConfig, SyncConfig, StateConfig, AgentConfig, Config,
+    AppConfig, ServerConfig, AuthConfig, MountDefaults,
+    SyncConfig, StateConfig, AgentConfig, SourceConfig, Config,
 )
 from ..shared.enums import NodeRole, CompareMode
 
@@ -32,7 +32,9 @@ def load(path: str | Path | None = None) -> Config:
     with open(p, "rb") as f:
         raw = tomllib.load(f)
 
-    app_raw  = raw.get("app", {})
+    _reject_legacy(raw)
+
+    app_raw = raw.get("app", {})
     _role_raw = app_raw.get("role", "orchestrator")
     try:
         _role = NodeRole(_role_raw)
@@ -40,10 +42,10 @@ def load(path: str | Path | None = None) -> Config:
         valid = [r.value for r in NodeRole]
         raise ValueError(f"Invalid app.role '{_role_raw}'. Valid values: {valid}")
     app = AppConfig(
-        role       = _role,
-        node_name  = app_raw.get("node_name", "node-01"),
-        data_dir   = app_raw.get("data_dir", "./data"),
-        log_level  = app_raw.get("log_level", "INFO"),
+        role      = _role,
+        node_name = app_raw.get("node_name", "node-01"),
+        data_dir  = app_raw.get("data_dir", "./data"),
+        log_level = app_raw.get("log_level", "INFO"),
     )
 
     srv_raw = raw.get("server", {})
@@ -52,16 +54,14 @@ def load(path: str | Path | None = None) -> Config:
         port = int(srv_raw.get("port", 8080)),
     )
 
-    mnt_raw = raw.get("mount", {})
-    mount = MountConfig(
-        enabled           = mnt_raw.get("enabled", True),
-        type              = mnt_raw.get("type", "nfs"),
-        remote_host       = mnt_raw.get("remote_host", ""),
-        remote_share      = mnt_raw.get("remote_share", ""),
-        local_mount_path  = mnt_raw.get("local_mount_path", "/mnt/salt-and-soil/source"),
-        nfs_version       = int(mnt_raw.get("nfs_version", 3)),
-        nfs_options       = mnt_raw.get("nfs_options", "soft,timeo=30,retrans=3"),
-        mount_retry_delay = int(mnt_raw.get("mount_retry_delay", 10)),
+    md_raw = raw.get("mount_defaults", {})
+    mount_defaults = MountDefaults(
+        type              = md_raw.get("type", "nfs"),
+        nfs_version       = int(md_raw.get("nfs_version", 3)),
+        nfs_options       = md_raw.get("nfs_options", "soft,timeo=30,retrans=3"),
+        mount_retry_delay = int(md_raw.get("mount_retry_delay", 10)),
+        mount_root_local  = md_raw.get("mount_root_local", "/mnt/salt-and-soil"),
+        mount_root_remote = md_raw.get("mount_root_remote", "/mnt/salt-and-soil"),
     )
 
     sync_raw = raw.get("sync", {})
@@ -71,9 +71,6 @@ def load(path: str | Path | None = None) -> Config:
     except ValueError:
         valid = [m.value for m in CompareMode]
         raise ValueError(f"Invalid sync.compare_mode '{_mode_raw}'. Valid values: {valid}")
-    _sync_roots = sync_raw.get("sync_roots", ["videos"])
-    if not _sync_roots:
-        raise ValueError("sync.sync_roots must not be empty")
     _exclude_file = sync_raw.get("exclude_file", "")
     _excludes: list[str] = []
     if _exclude_file:
@@ -81,16 +78,20 @@ def load(path: str | Path | None = None) -> Config:
         if _ep.exists():
             for ln in _ep.read_text(encoding="utf-8").splitlines():
                 s = ln.strip()
-                if s and not s.startswith("#"):
-                    _excludes.append(s)
+                if not s or s.startswith("#"):
+                    continue
+                # gitignore-style: '\#' at the start of a pattern is a literal '#'
+                # (e.g. Synology's '#recycle' folder). Strip the leading backslash.
+                if s.startswith("\\#"):
+                    s = s[1:]
+                _excludes.append(s)
     sync = SyncConfig(
-        scan_on_startup  = sync_raw.get("scan_on_startup", False),
-        auto_resume      = sync_raw.get("auto_resume", True),
-        compare_mode     = _mode,
-        max_parallel_jobs= int(sync_raw.get("max_parallel_jobs", 2)),
-        sync_roots       = _sync_roots,
-        exclude_file     = _exclude_file,
-        excludes         = _excludes,
+        scan_on_startup   = sync_raw.get("scan_on_startup", False),
+        auto_resume       = sync_raw.get("auto_resume", True),
+        compare_mode      = _mode,
+        max_parallel_jobs = int(sync_raw.get("max_parallel_jobs", 2)),
+        exclude_file      = _exclude_file,
+        excludes          = _excludes,
     )
 
     state_raw = raw.get("state", {})
@@ -101,28 +102,103 @@ def load(path: str | Path | None = None) -> Config:
     )
 
     auth_raw = raw.get("auth", {})
-    auth = AuthConfig(api_key = auth_raw.get("api_key", ""))
+    auth = AuthConfig(api_key=auth_raw.get("api_key", ""))
 
-    agents = []
+    agents: list[AgentConfig] = []
     for a in raw.get("agents", []):
         agents.append(AgentConfig(
-            name             = a.get("name", "agent"),
-            host             = a.get("host", ""),
-            port             = int(a.get("port", 8081)),
-            api_key          = a.get("api_key", ""),
-            ssh_host         = a.get("ssh_host", ""),
-            ssh_user         = a.get("ssh_user", "root"),
-            ssh_key_file     = a.get("ssh_key_file", "/root/.ssh/saltsoil_key"),
-            remote_mount_path= a.get("remote_mount_path", "/mnt/salt-and-soil/source"),
-            remote_share     = a.get("remote_share", ""),
+            name         = a.get("name", "agent"),
+            host         = a.get("host", ""),
+            port         = int(a.get("port", 8081)),
+            api_key      = a.get("api_key", ""),
+            ssh_host     = a.get("ssh_host", ""),
+            ssh_user     = a.get("ssh_user", "root"),
+            ssh_key_file = a.get("ssh_key_file", "/root/.ssh/saltsoil_key"),
         ))
 
+    sources = _parse_sources(raw.get("sources", []), app.role, agents)
+
     return Config(
-        app    = app,
-        server = server,
-        mount  = mount,
-        sync   = sync,
-        state  = state,
-        auth   = auth,
-        agents = agents,
+        app            = app,
+        server         = server,
+        mount_defaults = mount_defaults,
+        sync           = sync,
+        state          = state,
+        sources        = sources,
+        auth           = auth,
+        agents         = agents,
     )
+
+
+def _reject_legacy(raw: dict) -> None:
+    """Helpful errors when old config keys are still present."""
+    if "mount" in raw:
+        raise ValueError(
+            "[mount] is obsolete. Define [mount_defaults] and move per-share "
+            "settings into [[sources]] entries (local_host/local_share/local_path). "
+            "See config.example.toml."
+        )
+    if "sync_roots" in raw.get("sync", {}):
+        raise ValueError(
+            "sync.sync_roots is obsolete. Each sync target is now a [[sources]] "
+            "entry with its own alias. See config.example.toml."
+        )
+    for a in raw.get("agents", []):
+        if "remote_share" in a or "remote_mount_path" in a:
+            raise ValueError(
+                f"agents.{a.get('name', '?')}: remote_share/remote_mount_path "
+                f"are obsolete on [[agents]]. Move them into [[sources]] entries."
+            )
+
+
+def _parse_sources(
+    raw_sources: list[dict],
+    role: NodeRole,
+    agents: list[AgentConfig],
+) -> list[SourceConfig]:
+    if not raw_sources:
+        raise ValueError("[[sources]] must define at least one source")
+
+    out: list[SourceConfig] = []
+    seen: set[str] = set()
+    for s in raw_sources:
+        alias = s.get("alias", "").strip()
+        if not alias:
+            raise ValueError("[[sources]] entry missing 'alias'")
+        if alias in seen:
+            raise ValueError(f"duplicate source alias: '{alias}'")
+        seen.add(alias)
+
+        local_path = s.get("local_path", "")
+        if ".." in Path(local_path).parts:
+            raise ValueError(f"source '{alias}': local_path must not contain '..'")
+        remote_path = s.get("remote_path", "")
+        if ".." in Path(remote_path).parts:
+            raise ValueError(f"source '{alias}': remote_path must not contain '..'")
+
+        out.append(SourceConfig(
+            alias        = alias,
+            sort         = int(s.get("sort", 0)),
+            agent        = s.get("agent", ""),
+            local_host   = s.get("local_host", ""),
+            local_share  = s.get("local_share", ""),
+            local_path   = local_path,
+            remote_share = s.get("remote_share", ""),
+            remote_path  = remote_path,
+        ))
+
+    if role == NodeRole.ORCHESTRATOR:
+        names = {a.name for a in agents}
+        for src in out:
+            if not src.agent:
+                raise ValueError(
+                    f"source '{src.alias}': 'agent' is required on an orchestrator node"
+                )
+            if src.agent not in names:
+                raise ValueError(
+                    f"source '{src.alias}': unknown agent '{src.agent}' "
+                    f"(known: {sorted(names) or '<none>'})"
+                )
+
+    out.sort(key=lambda s: (s.sort, s.alias))
+    return out

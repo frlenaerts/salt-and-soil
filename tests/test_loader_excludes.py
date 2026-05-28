@@ -18,18 +18,26 @@ BASE_TOML = textwrap.dedent("""
     [server]
     port = 8080
 
-    [mount]
-    remote_host      = "1.2.3.4"
-    remote_share     = "/volume1"
-    local_mount_path = "/mnt/test"
+    [mount_defaults]
+    mount_root_local  = "/mnt/test"
+    mount_root_remote = "/mnt/test"
 
     [sync]
-    sync_roots   = ["videos"]
     exclude_file = "{exclude_path}"
 
     [state]
     state_file   = "/tmp/state.json"
     snapshot_dir = "/tmp/snapshots"
+
+    [[agents]]
+    name = "agent-01"
+
+    [[sources]]
+    alias       = "videos"
+    agent       = "agent-01"
+    local_host  = "1.2.3.4"
+    local_share = "/volume1"
+    local_path  = "videos"
 """)
 
 
@@ -66,15 +74,17 @@ def test_excludes_empty_when_not_configured(tmp_path):
         role = "orchestrator"
         [server]
         port = 8080
-        [mount]
-        remote_host = "1.2.3.4"
-        remote_share = "/volume1"
-        local_mount_path = "/mnt/test"
-        [sync]
-        sync_roots = ["videos"]
         [state]
         state_file = "/tmp/state.json"
         snapshot_dir = "/tmp/snapshots"
+        [[agents]]
+        name = "agent-01"
+        [[sources]]
+        alias = "videos"
+        agent = "agent-01"
+        local_host = "1.2.3.4"
+        local_share = "/volume1"
+        local_path = "videos"
     """))
     cfg = load(cfg_path)
     assert cfg.sync.exclude_file == ""
@@ -86,3 +96,20 @@ def test_excludes_strips_whitespace(tmp_path):
     exc.write_text("  @eaDir  \n\t.DS_Store\n")
     cfg = load(_write_cfg(tmp_path, str(exc).replace("\\", "/")))
     assert cfg.sync.excludes == ["@eaDir", ".DS_Store"]
+
+
+def test_excludes_escape_for_literal_hash(tmp_path):
+    """gitignore-style: '\\#recycle' becomes literal '#recycle' (not a comment)."""
+    exc = tmp_path / "excludes.list"
+    exc.write_text("# real comment\n\\#recycle\n@eaDir\n")
+    cfg = load(_write_cfg(tmp_path, str(exc).replace("\\", "/")))
+    assert cfg.sync.excludes == ["#recycle", "@eaDir"]
+
+
+def test_excludes_unescaped_hash_is_comment(tmp_path):
+    """A bare '#recycle' line is still treated as a comment (would silently
+    fail to match — the user must use '\\#recycle' to mean a literal '#')."""
+    exc = tmp_path / "excludes.list"
+    exc.write_text("#recycle\n@eaDir\n")
+    cfg = load(_write_cfg(tmp_path, str(exc).replace("\\", "/")))
+    assert cfg.sync.excludes == ["@eaDir"]

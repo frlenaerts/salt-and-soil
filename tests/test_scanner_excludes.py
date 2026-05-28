@@ -11,27 +11,26 @@ from salt_and_soil.scanner.scanner import DirScanner
 
 
 def test_is_excluded_matches_literal():
-    s = DirScanner(mount_point="/tmp", sync_roots=[], node_name="n", excludes=["@eaDir"])
+    s = DirScanner(node_name="n", excludes=["@eaDir"])
     assert s._is_excluded("@eaDir")
     assert not s._is_excluded("videos")
 
 
 def test_is_excluded_matches_glob():
-    s = DirScanner(mount_point="/tmp", sync_roots=[], node_name="n",
-                   excludes=["*@SynoEAStream", "*@SynoResource"])
+    s = DirScanner(node_name="n", excludes=["*@SynoEAStream", "*@SynoResource"])
     assert s._is_excluded("Movie@SynoEAStream")
     assert s._is_excluded("Show@SynoResource")
     assert not s._is_excluded("Movie")
 
 
 def test_is_excluded_empty_list():
-    s = DirScanner(mount_point="/tmp", sync_roots=[], node_name="n", excludes=[])
+    s = DirScanner(node_name="n", excludes=[])
     assert not s._is_excluded("@eaDir")
     assert not s._is_excluded(".DS_Store")
 
 
 def test_is_excluded_none_defaults_to_empty():
-    s = DirScanner(mount_point="/tmp", sync_roots=[], node_name="n")
+    s = DirScanner(node_name="n")
     assert s.excludes == []
     assert not s._is_excluded("anything")
 
@@ -43,12 +42,7 @@ def test_scan_filters_excluded_top_level(tmp_path):
     (root / "@eaDir").mkdir()
     (root / ".DS_Store").mkdir()
 
-    s = DirScanner(
-        mount_point = str(tmp_path),
-        sync_roots  = ["videos"],
-        node_name   = "test",
-        excludes    = ["@eaDir", ".DS_Store"],
-    )
-    snap = asyncio.run(s.scan_root("videos"))
+    s = DirScanner(node_name="test", excludes=["@eaDir", ".DS_Store"])
+    snap = asyncio.run(s.scan_source(root, "videos"))
     names = [e.relative_path for e in snap.entries]
     assert names == ["Movie"]

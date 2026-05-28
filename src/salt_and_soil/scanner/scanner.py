@@ -1,6 +1,6 @@
 """
 Scans a local directory and returns a ScanSnapshot.
-Works recursively but only stores top-level entries for v1.
+One level deep: the immediate subdirectories of `scan_path` become the entries.
 """
 from __future__ import annotations
 
@@ -16,40 +16,29 @@ from ..shared.clock import utc_now_iso, snapshot_id
 class DirScanner:
     def __init__(
         self,
-        mount_point: str,
-        sync_roots: list[str],
         node_name: str,
         excludes: list[str] | None = None,
     ):
-        self.mount_point = Path(mount_point)
-        self.sync_roots  = sync_roots
-        self.node_name   = node_name
-        self.excludes    = list(excludes or [])
+        self.node_name = node_name
+        self.excludes  = list(excludes or [])
 
-    async def scan_all(self) -> list[ScanSnapshot]:
-        snapshots = []
-        for root in self.sync_roots:
-            snap = await self.scan_root(root)
-            snapshots.append(snap)
-        return snapshots
-
-    async def scan_root(self, sync_root: str) -> ScanSnapshot:
-        sid       = snapshot_id()
-        root_path = self.mount_point / sync_root
+    async def scan_source(self, scan_path: str | Path, alias: str) -> ScanSnapshot:
+        sid = snapshot_id()
+        path = Path(scan_path)
         snap = ScanSnapshot(
-            snapshot_id = sid,
-            node_name   = self.node_name,
-            sync_root   = sync_root,
-            scanned_at  = utc_now_iso(),
+            snapshot_id  = sid,
+            node_name    = self.node_name,
+            source_alias = alias,
+            scanned_at   = utc_now_iso(),
         )
 
-        if not root_path.exists():
-            snap.error = f"Path does not exist: {root_path}"
+        if not path.exists():
+            snap.error = f"Path does not exist: {path}"
             return snap
 
-        entries = []
+        entries: list[ScanEntry] = []
         try:
-            for entry in sorted(root_path.iterdir(), key=lambda e: e.name):
+            for entry in sorted(path.iterdir(), key=lambda e: e.name):
                 if entry.is_symlink() or not entry.is_dir():
                     continue
                 if self._is_excluded(entry.name):

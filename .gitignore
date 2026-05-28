@@ -9,3 +9,5 @@ output_*.txt
 config.toml
 .pytest_cache/
 data/
+docs/
+.claude/

@@ -57,6 +57,7 @@ header {
 }
 .logo-mark img { width: 100%; height: 100%; object-fit: contain; }
 .logo-text { font-weight: 600; font-size: 16px; letter-spacing: -.3px; }
+.logo-version { font-size: 11px; color: var(--text-dim); margin-left: 6px; font-weight: 400; }
 .logo-node { font-size: 11px; color: var(--text-dim); margin-top: 1px; }
 
 .status-chip {
@@ -346,7 +347,7 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
   <div class="logo">
     <div class="logo-mark"><img src="/static/logo_124x124.png" alt="Salt &amp; Soil"></div>
     <div>
-      <div class="logo-text">Salt &amp; Soil</div>
+      <div class="logo-text">Salt &amp; Soil<span class="logo-version">v{{ version }}</span></div>
       <div class="logo-node" id="node-label">Orchestrator</div>
     </div>
   </div>
@@ -486,8 +487,8 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
 // ── State ─────────────────────────────────────────────────────────────────────
 let status    = 'idle';
 let diffs     = [];
-let actions   = {};   // key = "root|||name" → action string
-let collapsed = {};   // key = sync_root → bool
+let actions   = {};   // key = "alias|||name" → action string
+let collapsed = {};   // key = source_alias → bool
 let es        = null;
 let syncInitiated = false;
 let prevStatus    = null;
@@ -515,8 +516,8 @@ const DEFAULT_ACTION = {
   in_sync:'skip', needs_sync:'sync', local_only:'skip', remote_only:'skip'
 };
 
-function key(d) { return d.sync_root + '|||' + d.name; }
-function rootId(root) { return 'root-icon-' + root.replace(/[^a-zA-Z0-9]/g, '_'); }
+function key(d) { return d.source_alias + '|||' + d.name; }
+function rootId(alias) { return 'root-icon-' + alias.replace(/[^a-zA-Z0-9]/g, '_'); }
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
@@ -692,7 +693,7 @@ function connectSSE() {
       if (d.cancelled) {
         showBanner('error', '✕ Sync cancelled — folder status refreshed');
       } else {
-        showBanner('done', '✓ Sync complete — NAS devices can go to sleep now 🛌');
+        showBanner('done', '✓ Sync complete — storage can go to sleep now 🛌');
       }
     }
     if (d.status === 'done') onDone();
@@ -758,13 +759,13 @@ async function startScan() {
   connectSSE();
 }
 
-// ── Collapsible root rows ─────────────────────────────────────────────────────
-function toggleRoot(root) {
-  collapsed[root] = !collapsed[root];
-  const icon = document.getElementById(rootId(root));
-  if (icon) icon.textContent = collapsed[root] ? '▶' : '▼';
-  document.querySelectorAll(`[data-root="${root}"]`).forEach(tr => {
-    tr.style.display = collapsed[root] ? 'none' : '';
+// ── Collapsible source rows ───────────────────────────────────────────────────
+function toggleRoot(alias) {
+  collapsed[alias] = !collapsed[alias];
+  const icon = document.getElementById(rootId(alias));
+  if (icon) icon.textContent = collapsed[alias] ? '▶' : '▼';
+  document.querySelectorAll(`[data-alias=${CSS.escape(alias)}]`).forEach(tr => {
+    tr.style.display = collapsed[alias] ? 'none' : '';
   });
   const anyOpen = Object.values(collapsed).some(v => !v);
   const tbl = document.getElementById('folder-table');
@@ -779,8 +780,11 @@ function renderFolders() {
 
   const area = document.getElementById('folders-area');
   const grouped = {};
-  diffs.forEach(d => { (grouped[d.sync_root] = grouped[d.sync_root] || []).push(d); });
-  const roots = Object.keys(grouped);
+  // Preserve insertion order — diffs arrive in source-sorted order from the
+  // backend (cfg.sources is sorted by loader on (sort, alias)), and JS object
+  // keys keep insertion order for string keys.
+  diffs.forEach(d => { (grouped[d.source_alias] = grouped[d.source_alias] || []).push(d); });
+  const aliases = Object.keys(grouped);
 
   const anyOpen = Object.values(collapsed).some(v => !v);
   let html = `
@@ -795,16 +799,16 @@ function renderFolders() {
   area.innerHTML = html;
 
   const tbody = document.getElementById('diff-tbody');
-  roots.forEach(root => {
-    if (!(root in collapsed)) collapsed[root] = true;  // default collapsed
-    const isCollapsed = collapsed[root];
+  aliases.forEach(alias => {
+    if (!(alias in collapsed)) collapsed[alias] = true;  // default collapsed
+    const isCollapsed = collapsed[alias];
     const tr = document.createElement('tr');
     tr.className = 'root-row';
-    tr.onclick = () => toggleRoot(root);
-    tr.innerHTML = `<td colspan="5"><span class="root-icon" id="${rootId(root)}">${isCollapsed ? '▶' : '▼'}</span>/${root}</td>`;
+    tr.onclick = () => toggleRoot(alias);
+    tr.innerHTML = `<td colspan="5"><span class="root-icon" id="${rootId(alias)}">${isCollapsed ? '▶' : '▼'}</span>${esc(alias)}</td>`;
     tbody.appendChild(tr);
 
-    grouped[root].forEach(d => {
+    grouped[alias].forEach(d => {
       const k    = key(d);
       const diff = d.local_size > 0 && d.remote_size > 0 &&
         Math.abs(d.local_size - d.remote_size) / Math.max(d.local_size, 1) > 0.01;
@@ -812,7 +816,7 @@ function renderFolders() {
         `<option value="${v}" ${actions[k]===v?'selected':''}>${l}</option>`).join('');
       const sc = actions[k]==='sync' ? 'sel-sync' : actions[k]==='pull' ? 'sel-pull' : actions[k]==='delete_remote' ? 'sel-delete' : 'sel-skip';
       const dataRow = document.createElement('tr');
-      dataRow.setAttribute('data-root', root);
+      dataRow.setAttribute('data-alias', alias);
       if (isCollapsed) dataRow.style.display = 'none';
       dataRow.innerHTML = `
         <td class="fname">${esc(d.name)}</td>
@@ -879,7 +883,7 @@ function updateStats() {
 // ── Execute ───────────────────────────────────────────────────────────────────
 async function doExecute() {
   const payload = diffs.map(d => ({
-    sync_root: d.sync_root, folder: d.name,
+    source_alias: d.source_alias, folder: d.name,
     action: actions[key(d)] || 'skip',
   }));
   setStatus('mounting');
@@ -927,7 +931,7 @@ function confirmCancel() {
 
 function onDone() {
   setStatus('done');
-  showBanner('done', '✓ Sync complete — NAS devices can go to sleep now 🛌');
+  showBanner('done', '✓ Sync complete — storage can go to sleep now 🛌');
 }
 
 function showBanner(type, msg) {

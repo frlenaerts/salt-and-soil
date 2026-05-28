@@ -10,13 +10,13 @@ from salt_and_soil.sync.comparer import compare
 from salt_and_soil.shared.enums import DiffStatus, SyncAction
 
 
-def _snap(root: str, entries: list[tuple[str, int]], node: str = "local") -> ScanSnapshot:
+def _snap(alias: str, entries: list[tuple[str, int]], node: str = "local") -> ScanSnapshot:
     return ScanSnapshot(
-        snapshot_id = "test",
-        node_name   = node,
-        sync_root   = root,
-        scanned_at  = "2026-01-01T00:00:00",
-        entries     = [
+        snapshot_id  = "test",
+        node_name    = node,
+        source_alias = alias,
+        scanned_at   = "2026-01-01T00:00:00",
+        entries      = [
             ScanEntry(relative_path=name, entry_type="dir", size=size, mtime_utc=None)
             for name, size in entries
         ],
@@ -72,7 +72,7 @@ def test_mixed():
     assert by_name["c"].diff_status == DiffStatus.REMOTE_ONLY
 
 
-def test_sync_root_preserved():
+def test_source_alias_preserved():
     local = _snap("music", [("jazz", 500)])
     diffs = compare(local, None)
-    assert diffs[0].sync_root == "music"
+    assert diffs[0].source_alias == "music"
