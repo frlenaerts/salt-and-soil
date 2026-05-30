@@ -1032,6 +1032,22 @@ function applySearch() {
     if (icon) icon.textContent = q ? '▼' : (collapsed[alias] ? '▶' : '▼');
   });
 
+  // Force the table into full-column mode while searching so the matching rows
+  // show Local / Remote / Status / Action just like an expanded group does.
+  // When the search is cleared we fall back to the regular anyOpen logic.
+  const tbl = document.getElementById('folder-table');
+  const th  = document.getElementById('folder-th');
+  if (tbl && th) {
+    if (q) {
+      tbl.classList.remove('cols-hidden');
+      th.textContent = 'Title';
+    } else {
+      const anyOpen = Object.values(collapsed).some(v => !v);
+      tbl.classList.toggle('cols-hidden', !anyOpen);
+      th.textContent = anyOpen ? 'Title' : 'Folder';
+    }
+  }
+
   if (stats) stats.textContent = q ? `${totalVisible} match${totalVisible === 1 ? '' : 'es'}` : '';
 }
 
