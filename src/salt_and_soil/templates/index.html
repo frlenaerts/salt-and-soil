@@ -37,6 +37,10 @@
   --shadow:      0 1px 4px rgba(0,0,0,.06), 0 2px 12px rgba(0,0,0,.04);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
+/* Reserve scrollbar gutter so the page doesn't reflow when content grows past
+   the viewport (e.g. when expanding a folder group). Without this the scrollbar
+   appears/disappears and the layout shifts left/right on every toggle. */
+html { scrollbar-gutter: stable; }
 body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; min-height: 100vh; }
 
 /* ── Header ── */
