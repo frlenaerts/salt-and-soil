@@ -1176,9 +1176,27 @@ document.querySelectorAll('#sched-days input[type=checkbox]').forEach(cb =>
 (function wireSearch() {
   const inp = document.getElementById('search-input');
   const clr = document.getElementById('search-clear');
-  if (inp) inp.addEventListener('input', e => { searchQuery = e.target.value; applySearch(); });
+  if (inp) {
+    inp.addEventListener('input', e => {
+      const wasEmpty = !searchQuery;
+      searchQuery = e.target.value;
+      // Transitions empty → non-empty: auto-expand groups that have matches so
+      // the user immediately sees them. Subsequent keystrokes don't auto-expand
+      // (so manually collapsing during an active search stays respected).
+      if (wasEmpty && searchQuery) autoExpandMatchingGroups();
+      applySearch();
+    });
+  }
   if (clr) clr.addEventListener('click', clearSearch);
 })();
+
+function autoExpandMatchingGroups() {
+  const q = searchQuery.trim().toLowerCase();
+  if (!q) return;
+  diffs.forEach(d => {
+    if (d.name.toLowerCase().includes(q)) collapsed[d.source_alias] = false;
+  });
+}
 
 fetch('/api/state').then(r=>r.json()).then(d => {
   setStatus(d.status);
