@@ -192,6 +192,7 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
   cursor: pointer; text-transform: none; letter-spacing: 0;
 }
 .bulk-select:disabled { opacity: 0.5; cursor: not-allowed; }
+.match-count { margin-left: 8px; font-size: 10px; color: var(--text-dim); font-weight: 500; text-transform: none; letter-spacing: 0; }
 
 /* ── Bulk-confirm strookje (mirror confirmation) — amber, distinct from cancel-confirm ── */
 .bulk-confirm {
@@ -832,8 +833,18 @@ function onBulkAction(sel, alias) {
   }
 }
 
+// Returns the diffs of a group that are currently in scope for bulk action:
+// all of them when no filter is active, otherwise only the ones matching the
+// current search query.
+function groupScope(alias) {
+  const q = searchQuery.trim().toLowerCase();
+  return diffs
+    .filter(d => d.source_alias === alias)
+    .filter(d => !q || d.name.toLowerCase().includes(q));
+}
+
 function applyGroupPreset(alias, preset) {
-  diffs.filter(d => d.source_alias === alias).forEach(d => {
+  groupScope(alias).forEach(d => {
     const allowed = (ACTION_OPTS[d.diff_status] || []).map(([v]) => v);
     let next;
     if (preset === 'mirror') {
@@ -851,16 +862,18 @@ function applyGroupPreset(alias, preset) {
 }
 
 function showMirrorConfirm(alias) {
-  const groupDiffs = diffs.filter(d => d.source_alias === alias);
+  const q          = searchQuery.trim();
+  const groupDiffs = groupScope(alias);
   const willDelete = groupDiffs.filter(d => d.diff_status === 'remote_only').length;
   const willSync   = groupDiffs.filter(d => d.diff_status === 'needs_sync' || d.diff_status === 'local_only').length;
+  const filterHint = q ? ` matching <i>${esc(q)}</i>` : '';
   hideBulkConfirm();
   const c = document.createElement('div');
   c.id = 'bulk-confirm';
   c.className = 'bulk-confirm';
   const msg = document.createElement('span');
   msg.className = 'msg';
-  msg.innerHTML = `⚠ Mirror <b>${esc(alias)}</b> to remote — will sync ${willSync} folder(s) and <b>delete ${willDelete}</b> remote-only folder(s).`;
+  msg.innerHTML = `⚠ Mirror <b>${esc(alias)}</b> to remote — will sync ${willSync} folder(s)${filterHint} and <b>delete ${willDelete}</b> remote-only folder(s)${filterHint}.`;
   const acts = document.createElement('div');
   acts.className = 'actions';
   const no = document.createElement('button');
@@ -933,7 +946,9 @@ function renderFolders() {
     tr.innerHTML = `
       <td colspan="5">
         <div class="root-cell-inner">
-          <span><span class="root-icon" id="${rootId(alias)}">${isCollapsed ? '▶' : '▼'}</span>${esc(alias)}</span>
+          <span>
+            <span class="root-icon" id="${rootId(alias)}">${isCollapsed ? '▶' : '▼'}</span>${esc(alias)}<span class="match-count" data-alias-count="${esc(alias)}"></span>
+          </span>
           <select class="bulk-select" ${busy ? 'disabled' : ''}>
             <option value="">Bulk action…</option>
             <option value="mirror">↑ Mirror to remote</option>
@@ -1001,10 +1016,12 @@ function renderFolders() {
 }
 
 // ── Folder search ─────────────────────────────────────────────────────────────
-// View-only filter: hides rows whose folder name doesn't include the query,
-// and hides whole groups that end up with zero matches. Search overrides the
-// collapse state visually (so matches always show); when search is cleared the
-// regular collapse behaviour returns. Does not mutate `collapsed{}` or `actions{}`.
+// The search filter is independent of the collapse state:
+//   - Filter decides which rows are "in scope" (match the query)
+//   - Collapse decides whether you can see the in-scope rows of that group
+// A row is visible iff it matches the filter AND its group is open. Bulk
+// actions also respect the filter — see applyGroupPreset(). The match count is
+// shown next to the alias name so a collapsed group still reveals what's in it.
 function applySearch() {
   const q     = searchQuery.trim().toLowerCase();
   const tbody = document.getElementById('diff-tbody');
@@ -1020,36 +1037,30 @@ function applySearch() {
     const isMatch = !q || folder.includes(q);
     matchByAlias[alias] = (matchByAlias[alias] || 0) + (isMatch ? 1 : 0);
     if (isMatch) totalVisible++;
-    if (q) {
-      tr.style.display = isMatch ? '' : 'none';     // override collapse while searching
-    } else {
-      tr.style.display = collapsed[alias] ? 'none' : '';   // restore normal behaviour
-    }
+    tr.style.display = (isMatch && !collapsed[alias]) ? '' : 'none';
   });
 
-  // Root-row pass: hide groups with zero matches; force-expand icon when searching
+  // Root-row pass: hide groups with zero matches when searching; otherwise
+  // always visible. Icon always reflects the actual collapse state — search
+  // never auto-expands or auto-collapses a group.
   tbody.querySelectorAll('.root-row').forEach(rootTr => {
     const alias = rootTr.dataset.alias;
     const cnt   = matchByAlias[alias] || 0;
     rootTr.style.display = (q && cnt === 0) ? 'none' : '';
     const icon = rootTr.querySelector('.root-icon');
-    if (icon) icon.textContent = q ? '▼' : (collapsed[alias] ? '▶' : '▼');
+    if (icon) icon.textContent = collapsed[alias] ? '▶' : '▼';
+    const badge = rootTr.querySelector('.match-count');
+    if (badge) badge.textContent = q ? `· ${cnt} match${cnt === 1 ? '' : 'es'}` : '';
   });
 
-  // Force the table into full-column mode while searching so the matching rows
-  // show Local / Remote / Status / Action just like an expanded group does.
-  // When the search is cleared we fall back to the regular anyOpen logic.
+  // Show full columns when at least one group is open (regular logic — no
+  // longer search-driven now that search doesn't force-expand groups).
   const tbl = document.getElementById('folder-table');
   const th  = document.getElementById('folder-th');
   if (tbl && th) {
-    if (q) {
-      tbl.classList.remove('cols-hidden');
-      th.textContent = 'Title';
-    } else {
-      const anyOpen = Object.values(collapsed).some(v => !v);
-      tbl.classList.toggle('cols-hidden', !anyOpen);
-      th.textContent = anyOpen ? 'Title' : 'Folder';
-    }
+    const anyOpen = Object.values(collapsed).some(v => !v);
+    tbl.classList.toggle('cols-hidden', !anyOpen);
+    th.textContent = anyOpen ? 'Title' : 'Folder';
   }
 
   if (stats) stats.textContent = q ? `${totalVisible} match${totalVisible === 1 ? '' : 'es'}` : '';
