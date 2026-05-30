@@ -205,6 +205,23 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
 .bulk-confirm .btn-no  { background: #fff; color: var(--text-mid); border-color: var(--border-mid); }
 .bulk-confirm .btn-no:hover  { border-color: var(--teal); color: var(--teal); }
 
+/* ── Folder search bar ── */
+.search-bar { display: none; gap: 8px; align-items: center; margin-bottom: 10px; }
+.search-bar.visible { display: flex; }
+.search-bar input {
+  flex: 1; padding: 8px 12px; border-radius: 6px;
+  border: 1px solid var(--border-mid); font-size: 13px;
+  font-family: var(--sans); background: #fff;
+}
+.search-bar input:focus { outline: none; border-color: var(--teal); }
+.search-bar .search-clear {
+  cursor: pointer; padding: 7px 12px; font-size: 12px; font-weight: 500;
+  border: 1px solid var(--border-mid); border-radius: 6px;
+  background: #fff; color: var(--text-mid);
+}
+.search-bar .search-clear:hover { border-color: var(--teal); color: var(--teal); }
+.search-bar .search-stats { font-size: 11px; color: var(--text-dim); min-width: 80px; text-align: right; }
+
 /* ── Action row ── */
 .action-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 
@@ -408,6 +425,11 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
   </div>
 
   <div class="tab-panel active" id="tab-folders">
+    <div class="search-bar" id="search-bar">
+      <input type="text" id="search-input" placeholder="Filter folders…" autocomplete="off">
+      <span class="search-stats" id="search-stats"></span>
+      <button type="button" class="search-clear" id="search-clear">Clear</button>
+    </div>
     <div id="folders-area"></div>
   </div>
 
@@ -518,6 +540,7 @@ let status    = 'idle';
 let diffs     = [];
 let actions   = {};   // key = "alias|||name" → action string
 let collapsed = {};   // key = source_alias → bool
+let searchQuery = '';
 let es        = null;
 let syncInitiated = false;
 let prevStatus    = null;
@@ -865,6 +888,9 @@ function toggleRoot(alias) {
   if (tbl) tbl.classList.toggle('cols-hidden', !anyOpen);
   const th = document.getElementById('folder-th');
   if (th) th.textContent = anyOpen ? 'Title' : 'Folder';
+  // Re-apply the search filter — toggleRoot unconditionally set display on every
+  // row with this alias, which could expose rows that don't match the search.
+  applySearch();
 }
 
 // ── Folder table ──────────────────────────────────────────────────────────────
@@ -898,6 +924,7 @@ function renderFolders() {
     const isCollapsed = collapsed[alias];
     const tr = document.createElement('tr');
     tr.className = 'root-row';
+    tr.setAttribute('data-alias', alias);
     tr.onclick = () => toggleRoot(alias);
     tr.innerHTML = `
       <td colspan="5">
@@ -926,6 +953,7 @@ function renderFolders() {
       const sc = actions[k]==='sync' ? 'sel-sync' : actions[k]==='pull' ? 'sel-pull' : actions[k]==='delete_remote' ? 'sel-delete' : 'sel-skip';
       const dataRow = document.createElement('tr');
       dataRow.setAttribute('data-alias', alias);
+      dataRow.setAttribute('data-folder', d.name);
       if (isCollapsed) dataRow.style.display = 'none';
       dataRow.innerHTML = `
         <td class="fname">${esc(d.name)}</td>
@@ -964,6 +992,59 @@ function renderFolders() {
     </div>`;
   area.appendChild(footer);
   updateStats();
+  updateSearchBarVisibility();
+  applySearch();
+}
+
+// ── Folder search ─────────────────────────────────────────────────────────────
+// View-only filter: hides rows whose folder name doesn't include the query,
+// and hides whole groups that end up with zero matches. Search overrides the
+// collapse state visually (so matches always show); when search is cleared the
+// regular collapse behaviour returns. Does not mutate `collapsed{}` or `actions{}`.
+function applySearch() {
+  const q     = searchQuery.trim().toLowerCase();
+  const tbody = document.getElementById('diff-tbody');
+  const stats = document.getElementById('search-stats');
+  if (!tbody) return;
+
+  // Per-row pass: tally matches per alias + set row visibility
+  const matchByAlias = {};
+  let totalVisible = 0;
+  tbody.querySelectorAll('tr[data-folder]').forEach(tr => {
+    const alias  = tr.dataset.alias;
+    const folder = (tr.dataset.folder || '').toLowerCase();
+    const isMatch = !q || folder.includes(q);
+    matchByAlias[alias] = (matchByAlias[alias] || 0) + (isMatch ? 1 : 0);
+    if (isMatch) totalVisible++;
+    if (q) {
+      tr.style.display = isMatch ? '' : 'none';     // override collapse while searching
+    } else {
+      tr.style.display = collapsed[alias] ? 'none' : '';   // restore normal behaviour
+    }
+  });
+
+  // Root-row pass: hide groups with zero matches; force-expand icon when searching
+  tbody.querySelectorAll('.root-row').forEach(rootTr => {
+    const alias = rootTr.dataset.alias;
+    const cnt   = matchByAlias[alias] || 0;
+    rootTr.style.display = (q && cnt === 0) ? 'none' : '';
+    const icon = rootTr.querySelector('.root-icon');
+    if (icon) icon.textContent = q ? '▼' : (collapsed[alias] ? '▶' : '▼');
+  });
+
+  if (stats) stats.textContent = q ? `${totalVisible} match${totalVisible === 1 ? '' : 'es'}` : '';
+}
+
+function clearSearch() {
+  searchQuery = '';
+  const inp = document.getElementById('search-input');
+  if (inp) inp.value = '';
+  applySearch();
+}
+
+function updateSearchBarVisibility() {
+  const bar = document.getElementById('search-bar');
+  if (bar) bar.classList.toggle('visible', diffs.length > 0);
 }
 
 function setAction(sel) {
@@ -1061,6 +1142,13 @@ document.querySelectorAll('#sched-days input[type=checkbox]').forEach(cb =>
   }));
 
 // ── Init ──────────────────────────────────────────────────────────────────────
+(function wireSearch() {
+  const inp = document.getElementById('search-input');
+  const clr = document.getElementById('search-clear');
+  if (inp) inp.addEventListener('input', e => { searchQuery = e.target.value; applySearch(); });
+  if (clr) clr.addEventListener('click', clearSearch);
+})();
+
 fetch('/api/state').then(r=>r.json()).then(d => {
   setStatus(d.status);
   if (d.log?.length)      appendLog(d.log);
