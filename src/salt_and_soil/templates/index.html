@@ -390,6 +390,29 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
   .status-chip, .schedule-chip { padding: 6px 8px; }
   .chip-dot { width: 10px; height: 10px; }
 }
+
+/* ── User management ── */
+.alias-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.alias-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border: 1px solid var(--border-mid); border-radius: 20px;
+  cursor: pointer; font-size: 12px; color: var(--text-mid); user-select: none;
+}
+.alias-chip input { accent-color: var(--teal); margin: 0; }
+.alias-chip.active { background: var(--teal-light); border-color: var(--teal); color: var(--teal-dark); }
+.user-card { border: 1px solid var(--border); border-radius: var(--r); padding: 14px 16px; margin: 12px 16px; }
+.user-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.user-name { font-family: var(--mono); font-weight: 500; font-size: 14px; }
+.admin-badge {
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px;
+  background: var(--teal-light); color: var(--teal-dark); padding: 2px 8px; border-radius: 4px; margin-left: 8px;
+}
+.user-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.pw-mini { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border); }
+.pw-mini input { padding: 7px 10px; border: 1px solid var(--border-mid); border-radius: 6px; font-size: 13px; font-family: var(--sans); width: 150px; }
+.pw-mini input:focus { outline: none; border-color: var(--teal); }
+.btn-danger { background: var(--red); color: #fff; }
+.btn-danger:hover:not(:disabled) { filter: brightness(.92); }
 </style>
 </head>
 <body>
@@ -427,6 +450,7 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
     <button class="tab-btn" id="tab-btn-schedule" onclick="showTab('schedule')">Schedule</button>
     <button class="tab-btn" id="tab-btn-log" onclick="showTab('log')">Log</button>
     <button class="tab-btn" id="tab-btn-settings" onclick="showTab('settings')">Settings</button>
+    {% if is_admin %}<button class="tab-btn" id="tab-btn-users" onclick="showTab('users')">Users</button>{% endif %}
   </div>
 
   <div class="tab-panel active" id="tab-folders">
@@ -537,6 +561,52 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 20px; }
       </form>
     </div>
   </div>
+
+  {% if is_admin %}
+  <div class="tab-panel" id="tab-users">
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">Users</span>
+        <span id="users-status" style="font-size:11px;color:var(--text-dim)"></span>
+      </div>
+      <div id="users-list" style="padding:4px 0"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">New user</span>
+      </div>
+      <form class="sched-form" id="newuser-form" onsubmit="createUser(event)" autocomplete="off">
+        <div class="sched-row">
+          <span class="sched-label">Username</span>
+          <input type="text" class="sched-time" style="width:240px" id="nu-username" autocomplete="off" required>
+        </div>
+        <div class="sched-row">
+          <span class="sched-label">Password</span>
+          <input type="password" class="sched-time" style="width:240px" id="nu-pw" minlength="8" autocomplete="new-password" required>
+          <span style="font-size:11px;color:var(--text-dim)">At least 8 characters.</span>
+        </div>
+        <div class="sched-row">
+          <span class="sched-label">Repeat password</span>
+          <input type="password" class="sched-time" style="width:240px" id="nu-pw2" minlength="8" autocomplete="new-password" required>
+        </div>
+        <div class="sched-row">
+          <label class="sched-radio">
+            <input type="checkbox" id="nu-admin" onchange="toggleNewUserAdmin()"> Administrator (full access to all sources)
+          </label>
+        </div>
+        <div class="sched-row" id="nu-aliases-row">
+          <span class="sched-label">Allowed sources</span>
+          <div class="alias-grid" id="nu-aliases"></div>
+        </div>
+        <div>
+          <button type="submit" class="btn btn-primary">Create user</button>
+          <span id="newuser-status" style="font-size:11px;color:var(--text-dim);margin-left:10px"></span>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endif %}
 </main>
 
 <script>
@@ -550,6 +620,8 @@ let es        = null;
 let syncInitiated = false;
 let prevStatus    = null;
 let lastSeenScanAt = null;
+const IS_ADMIN    = {{ 'true' if is_admin else 'false' }};
+const ALL_ALIASES = {{ all_aliases | tojson }};
 
 const LABELS = {
   idle:'Idle', mounting:'Mounting…', scanning:'Scanning…',
@@ -579,10 +651,12 @@ function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 function showTab(name) {
-  ['folders','schedule','log','settings'].forEach(t => {
-    document.getElementById('tab-' + t).classList.toggle('active', t === name);
-    document.getElementById('tab-btn-' + t).classList.toggle('active', t === name);
-  });
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  const panel = document.getElementById('tab-' + name);
+  const btn   = document.getElementById('tab-btn-' + name);
+  if (panel) panel.classList.add('active');
+  if (btn)   btn.classList.add('active');
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────
@@ -612,6 +686,176 @@ async function changePassword(ev) {
   } catch {
     stat.textContent = 'Network error';
   }
+}
+
+// ── Users (admin only) ──────────────────────────────────────────────────────────
+async function errText(r) {
+  try { const j = await r.json(); return j.detail || ('Error ' + r.status); }
+  catch { return 'Error ' + r.status; }
+}
+
+function setGridDisabled(grid, disabled) {
+  grid.style.opacity = disabled ? '.4' : '';
+  grid.style.pointerEvents = disabled ? 'none' : '';
+}
+
+function buildAliasChips(grid, selected, allAccess) {
+  const sel = new Set(selected || []);
+  grid.innerHTML = '';
+  if (!ALL_ALIASES.length) {
+    grid.innerHTML = '<span style="font-size:12px;color:var(--text-dim)">No sources configured.</span>';
+    return;
+  }
+  ALL_ALIASES.forEach(a => {
+    const lbl = document.createElement('label');
+    lbl.className = 'alias-chip' + (sel.has(a) ? ' active' : '');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.value = a; cb.checked = sel.has(a);
+    cb.addEventListener('change', () => lbl.classList.toggle('active', cb.checked));
+    lbl.appendChild(cb);
+    lbl.appendChild(document.createTextNode(' ' + a));
+    grid.appendChild(lbl);
+  });
+  setGridDisabled(grid, allAccess);
+}
+
+function gridAliases(grid) {
+  return [...grid.querySelectorAll('input[type=checkbox]:checked')].map(cb => cb.value);
+}
+
+async function loadUsers() {
+  const stat = document.getElementById('users-status');
+  if (stat) stat.textContent = 'Loading…';
+  try {
+    const r = await fetch('/api/users');
+    if (!r.ok) { if (stat) stat.textContent = await errText(r); return; }
+    const data = await r.json();
+    if (stat) stat.textContent = '';
+    renderUsers(data.users || []);
+  } catch { if (stat) stat.textContent = 'Network error'; }
+}
+
+function renderUsers(users) {
+  const area = document.getElementById('users-list');
+  if (!area) return;
+  area.innerHTML = '';
+  if (!users.length) {
+    area.innerHTML = '<div style="padding:14px 16px;color:var(--text-dim)">No users yet.</div>';
+    return;
+  }
+  users.forEach(u => {
+    const allAccess = u.is_admin || (u.allowed_aliases || []).includes('*');
+    const card = document.createElement('div');
+    card.className = 'user-card';
+    card.innerHTML = `
+      <div class="user-card-head">
+        <div><span class="user-name"></span><span class="admin-badge" style="display:none">Admin</span></div>
+        <div class="user-actions">
+          <button class="btn btn-primary btn-save" style="padding:6px 14px;font-size:12px">Save rights</button>
+          <button class="btn btn-danger btn-del"   style="padding:6px 14px;font-size:12px">Delete</button>
+        </div>
+      </div>
+      <label class="sched-radio" style="margin-bottom:8px">
+        <input type="checkbox" class="admin-cb" ${u.is_admin ? 'checked' : ''}> Administrator (full access to all sources)
+      </label>
+      <div class="alias-grid"></div>
+      <div class="pw-mini">
+        <span class="sched-label" style="margin:0">Set password</span>
+        <input type="password" class="pw1" placeholder="New password" autocomplete="new-password">
+        <input type="password" class="pw2" placeholder="Repeat" autocomplete="new-password">
+        <button class="btn btn-outline btn-pw" style="padding:6px 14px;font-size:12px">Update</button>
+      </div>
+      <div class="row-stat" style="font-size:11px;color:var(--text-dim);margin-top:8px"></div>`;
+    area.appendChild(card);
+
+    card.querySelector('.user-name').textContent = u.username;
+    card.querySelector('.admin-badge').style.display = u.is_admin ? '' : 'none';
+
+    const grid    = card.querySelector('.alias-grid');
+    const adminCb = card.querySelector('.admin-cb');
+    const stat    = card.querySelector('.row-stat');
+    buildAliasChips(grid, u.allowed_aliases, allAccess);
+    adminCb.addEventListener('change', () => setGridDisabled(grid, adminCb.checked));
+
+    card.querySelector('.btn-save').addEventListener('click', () => saveUserRights(u.username, adminCb.checked, grid, stat));
+    card.querySelector('.btn-del').addEventListener('click',  () => deleteUser(u.username, stat));
+    card.querySelector('.btn-pw').addEventListener('click',   () =>
+      setUserPassword(u.username, card.querySelector('.pw1'), card.querySelector('.pw2'), stat));
+  });
+}
+
+async function saveUserRights(username, isAdmin, grid, stat) {
+  stat.textContent = 'Saving…';
+  try {
+    const r = await fetch('/api/users/' + encodeURIComponent(username), {
+      method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ is_admin: isAdmin, allowed_aliases: gridAliases(grid) }),
+    });
+    if (!r.ok) { stat.textContent = await errText(r); return; }
+    stat.textContent = 'Saved ✓';
+    loadUsers();
+  } catch { stat.textContent = 'Network error'; }
+}
+
+async function setUserPassword(username, pw1el, pw2el, stat) {
+  const p1 = pw1el.value, p2 = pw2el.value;
+  if (p1.length < 8) { stat.textContent = 'Password must be at least 8 characters'; return; }
+  if (p1 !== p2)     { stat.textContent = 'Passwords do not match'; return; }
+  stat.textContent = 'Saving…';
+  try {
+    const r = await fetch('/api/users/' + encodeURIComponent(username) + '/password', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ new_password: p1, confirm_password: p2 }),
+    });
+    if (!r.ok) { stat.textContent = await errText(r); return; }
+    pw1el.value = ''; pw2el.value = '';
+    stat.textContent = 'Password updated ✓';
+  } catch { stat.textContent = 'Network error'; }
+}
+
+async function deleteUser(username, stat) {
+  if (!confirm('Delete user "' + username + '"? This cannot be undone.')) return;
+  stat.textContent = 'Deleting…';
+  try {
+    const r = await fetch('/api/users/' + encodeURIComponent(username), { method: 'DELETE' });
+    if (!r.ok) { stat.textContent = await errText(r); return; }
+    loadUsers();
+  } catch { stat.textContent = 'Network error'; }
+}
+
+function selectedNewAliases() {
+  return [...document.querySelectorAll('#nu-aliases input[type=checkbox]:checked')].map(cb => cb.value);
+}
+
+function toggleNewUserAdmin() {
+  const grid = document.getElementById('nu-aliases');
+  if (grid) setGridDisabled(grid, document.getElementById('nu-admin').checked);
+}
+
+async function createUser(ev) {
+  ev.preventDefault();
+  const stat    = document.getElementById('newuser-status');
+  const uname   = document.getElementById('nu-username').value.trim();
+  const pw      = document.getElementById('nu-pw').value;
+  const pw2     = document.getElementById('nu-pw2').value;
+  const isAdmin = document.getElementById('nu-admin').checked;
+  if (!uname)        { stat.textContent = 'Username is required'; return; }
+  if (pw.length < 8) { stat.textContent = 'Password must be at least 8 characters'; return; }
+  if (pw !== pw2)    { stat.textContent = 'Passwords do not match'; return; }
+  const aliases = isAdmin ? [] : selectedNewAliases();
+  stat.textContent = 'Creating…';
+  try {
+    const r = await fetch('/api/users', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ username: uname, password: pw, confirm_password: pw2, is_admin: isAdmin, allowed_aliases: aliases }),
+    });
+    if (!r.ok) { stat.textContent = await errText(r); return; }
+    document.getElementById('newuser-form').reset();
+    buildAliasChips(document.getElementById('nu-aliases'), [], false);
+    stat.textContent = 'User created ✓';
+    setTimeout(() => { stat.textContent = ''; }, 2500);
+    loadUsers();
+  } catch { stat.textContent = 'Network error'; }
 }
 
 // ── Schedule ──────────────────────────────────────────────────────────────────
@@ -1196,6 +1440,12 @@ function autoExpandMatchingGroups() {
   diffs.forEach(d => {
     if (d.name.toLowerCase().includes(q)) collapsed[d.source_alias] = false;
   });
+}
+
+if (IS_ADMIN) {
+  const nuGrid = document.getElementById('nu-aliases');
+  if (nuGrid) buildAliasChips(nuGrid, [], false);
+  loadUsers();
 }
 
 fetch('/api/state').then(r=>r.json()).then(d => {

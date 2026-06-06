@@ -122,6 +122,7 @@ State is persisted to `./data/state/state.json`; scan snapshots under `./data/st
 - External binaries required on the host: `mount`, `umount`, `mountpoint`, `rsync`, `du` — this is a Linux-only tool.
 - SSE endpoint `/api/stream` streams log lines to the HTML UI in real time.
 - Python 3.10+ required; uses `tomllib` (stdlib) or falls back to `tomli`.
-- First browser visit redirects to `/setup` to create the single orchestrator user; subsequent visits require login at `/login`.
-- Auth state (username, argon2 hash, session-signing secret) is stored in `./data/auth.toml`.
+- First browser visit redirects to `/setup` to create the first orchestrator user (always an administrator); subsequent visits require login at `/login`.
+- Auth supports multiple users with roles (admin / regular) and per-source permissions. State (server-wide session-signing secret + per-user username, argon2 hash, admin flag, allowed source aliases, password version) is stored in `./data/users.toml`. A legacy single-user `./data/auth.toml` is migrated to the first admin on startup and renamed to `auth.toml.bak`.
+- Admins manage accounts via the `Users` tab → `/api/users` CRUD endpoints. Permissions are enforced server-side: scans/syncs and diff visibility are scoped to a user's allowed sources, and `/api/*` rejects out-of-scope actions.
 - Auth middleware is pure-ASGI (not `BaseHTTPMiddleware`) to avoid breaking SSE streams on shutdown.

@@ -70,6 +70,16 @@ class OrchestratorRuntime:
         self._schedule       = self._schedule_store.load()
         self._schedule_loop  = ScheduleLoop(self)
 
+    # ── Source selection ──────────────────────────────────────────────────────
+
+    def _selected_sources(self, aliases: list[str] | None) -> list[SourceConfig]:
+        """Sources to act on. None → all (admin / scheduled run); otherwise only
+        the sources whose alias is in `aliases` (a user's permission scope)."""
+        if aliases is None:
+            return list(self.cfg.sources)
+        allowed = set(aliases)
+        return [s for s in self.cfg.sources if s.alias in allowed]
+
     # ── Source-path resolution ────────────────────────────────────────────────
 
     def _local_scan_path(self, src: SourceConfig) -> str:
@@ -210,12 +220,12 @@ class OrchestratorRuntime:
 
     # ── Main flow ─────────────────────────────────────────────────────────────
 
-    async def _do_mount_all(self) -> dict[str, str]:
+    async def _do_mount_all(self, sources: list[SourceConfig]) -> dict[str, str]:
         """Mount all unique (local_host, local_share) pairs locally, and call
         the agent mount endpoint for each source. Returns alias → remote
         mount_point (as reported by the agent /status, when available)."""
         # 1. Local: dedup by (host, share)
-        unique_pairs = sorted({(s.local_host, s.local_share) for s in self.cfg.sources})
+        unique_pairs = sorted({(s.local_host, s.local_share) for s in sources})
         self._mounts_info = []
         for host, share in unique_pairs:
             self._info(f"[{self._node}] Mounting {share}...")
@@ -242,7 +252,7 @@ class OrchestratorRuntime:
         remote_mount_points: dict[str, str] = {}
         for agent_name, agent in self.agent_clients.items():
             logged_shares: set[str] = set()
-            for src in (s for s in self.cfg.sources if s.agent == agent_name):
+            for src in (s for s in sources if s.agent == agent_name):
                 first_for_share = src.remote_share not in logged_shares
                 if first_for_share:
                     self._info(f"[{agent_name}] Mounting {src.remote_share}...")
@@ -268,7 +278,7 @@ class OrchestratorRuntime:
 
         return remote_mount_points
 
-    async def _do_unmount_all(self) -> None:
+    async def _do_unmount_all(self, sources: list[SourceConfig]) -> None:
         # Local: one log line per share
         for nfs in self.registry.all():
             try:
@@ -279,7 +289,7 @@ class OrchestratorRuntime:
         # Remote: unmount every alias (agent dedups internally), log once per share
         for agent_name, agent in self.agent_clients.items():
             logged_shares: set[str] = set()
-            for src in (s for s in self.cfg.sources if s.agent == agent_name):
+            for src in (s for s in sources if s.agent == agent_name):
                 first_for_share = src.remote_share not in logged_shares
                 try:
                     await agent.unmount(src.alias)
@@ -291,17 +301,17 @@ class OrchestratorRuntime:
                         logged_shares.add(src.remote_share)
                         self._err(f"[{agent_name}] Unmount {src.remote_share} failed: {e}")
 
-    async def _do_scan_and_compare(self) -> None:
+    async def _do_scan_and_compare(self, sources: list[SourceConfig]) -> None:
         """Scan both sides, compare, persist diffs. Assumes mounts are active."""
         self.status = AppStatus.SCANNING
-        aliases = [s.alias for s in self.cfg.sources]
+        aliases = [s.alias for s in sources]
         self._info(f"[{self._node}] Scanning: {', '.join(aliases)}...")
         scanner = DirScanner(
             node_name = self.cfg.app.node_name,
             excludes  = self.cfg.sync.excludes,
         )
         local_snaps: dict[str, ScanSnapshot] = {}
-        for src in self.cfg.sources:
+        for src in sources:
             scan_path = self._local_scan_path(src)
             snap      = await scanner.scan_source(scan_path, src.alias)
             local_snaps[src.alias] = snap
@@ -309,7 +319,7 @@ class OrchestratorRuntime:
             self._info(f"[{self._node}] {src.alias}: {snap.entry_count} folders, {human_size(snap.total_size)}")
 
         remote_snaps: dict[str, ScanSnapshot] = {}
-        for src in self.cfg.sources:
+        for src in sources:
             agent_name = src.agent
             agent      = self.agent_clients.get(agent_name)
             if not agent:
@@ -341,7 +351,7 @@ class OrchestratorRuntime:
 
         self._info(f"[{self._node}] Comparing with agent...")
         all_diffs: list[FolderDiff] = []
-        for src in self.cfg.sources:
+        for src in sources:
             diffs   = compare(local_snaps[src.alias], remote_snaps.get(src.alias))
             all_diffs.extend(diffs)
             in_sync = sum(1 for d in diffs if d.diff_status.value == "in_sync")
@@ -350,25 +360,34 @@ class OrchestratorRuntime:
             only_r  = sum(1 for d in diffs if d.diff_status.value == "remote_only")
             self._info(f"[{self._node}] {src.alias}: {in_sync} in sync, {needs} different, {only_l} local only, {only_r} remote only")
 
-        self._diffs = all_diffs
+        # Merge: replace only the diffs of the sources we just scanned, keeping
+        # any diffs from sources outside this scan's scope (e.g. an admin's full
+        # scan followed by a user's scoped rescan). Reorder to keep each source's
+        # rows contiguous and in config order — the UI relies on this grouping.
+        scanned = {s.alias for s in sources}
+        order   = {s.alias: i for i, s in enumerate(self.cfg.sources)}
+        merged  = [d for d in self._diffs if d.source_alias not in scanned] + all_diffs
+        merged.sort(key=lambda d: order.get(d.source_alias, len(order)))
+        self._diffs = merged
 
         state = self.repo.load_state(self.cfg.app.node_name, self.cfg.app.role.value)
         state.last_scan_id = next(iter(local_snaps.values())).snapshot_id if local_snaps else ""
         state.last_scan_at = utc_now_iso()
-        state.diffs        = all_diffs
+        state.diffs        = merged
         self.repo.save_state(state)
 
         self._last_scan_at = state.last_scan_at
         self._info(f"[{self._node}] Scan complete — {len(all_diffs)} folders found")
 
-    async def run_scan(self):
+    async def run_scan(self, aliases: list[str] | None = None):
         self.status = AppStatus.MOUNTING
         self._cancel_requested = False
+        sources = self._selected_sources(aliases)
         _did_mount = False
         try:
-            await self._do_mount_all()
+            await self._do_mount_all(sources)
             _did_mount = True
-            await self._do_scan_and_compare()
+            await self._do_scan_and_compare(sources)
             self.status = AppStatus.READY
         except Exception as e:
             self._error = str(e)
@@ -376,21 +395,27 @@ class OrchestratorRuntime:
             self.status = AppStatus.ERROR
         finally:
             if _did_mount:
-                await self._do_unmount_all()
+                await self._do_unmount_all(sources)
 
     async def run_sync(self, actions: list[ActionItem], rescan_after: bool = True):
         _did_mount = False
         self._cancel_requested = False
+        # Only touch sources that have at least one non-skip action — never mount
+        # or sync a source the caller didn't ask for.
+        active_aliases = sorted({a.source_alias for a in actions if a.action != SyncAction.SKIP})
+        sources = self._selected_sources(active_aliases)
         try:
             self.status = AppStatus.MOUNTING
-            remote_mps = await self._do_mount_all()
+            remote_mps = await self._do_mount_all(sources)
             _did_mount = True
 
             action_map = {(a.source_alias, a.folder): a.action for a in actions}
+            # Any diff without an explicit action is forced to SKIP so a default
+            # planned_action (e.g. SYNC for local_only) can never trigger an
+            # unrequested transfer — important now that a user only submits
+            # actions for their own sources.
             for diff in self._diffs:
-                k = (diff.source_alias, diff.name)
-                if k in action_map:
-                    diff.planned_action = action_map[k]
+                diff.planned_action = action_map.get((diff.source_alias, diff.name), SyncAction.SKIP)
 
             jobs  = build_jobs(self._diffs)
             to_do = [j for j in jobs if j.action != SyncAction.SKIP]
@@ -447,7 +472,7 @@ class OrchestratorRuntime:
                 self._info(f"[{self._node}] Sync complete")
 
             if rescan_after:
-                await self._do_scan_and_compare()
+                await self._do_scan_and_compare(sources)
                 self.status = AppStatus.READY
             else:
                 self.status = AppStatus.DONE
@@ -459,7 +484,7 @@ class OrchestratorRuntime:
         finally:
             self._current_executor = None
             if _did_mount:
-                await self._do_unmount_all()
+                await self._do_unmount_all(sources)
 
     async def request_cancel(self) -> bool:
         """Request cancellation of an in-progress sync. Terminates the current

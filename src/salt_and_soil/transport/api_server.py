@@ -23,8 +23,9 @@ import math
 
 from .. import __version__
 from ..auth import (
-    AuthStore, LoginThrottle, hash_password, verify_password,
+    AuthStore, LoginThrottle, verify_password,
     make_session_token, verify_session_token,
+    User, ALL_ALIASES, UserExistsError, LastAdminError,
 )
 from ..auth.password import MIN_PASSWORD_LENGTH
 from ..auth.session import SESSION_COOKIE, REMEMBER_SECONDS, SESSION_SECONDS
@@ -119,9 +120,10 @@ def create_app(cfg: Config, runtime) -> FastAPI:
 def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
     templates = Jinja2Templates(directory=str(_TMPL_DIR))
 
-    auth_path     = Path(cfg.app.data_dir) / "auth.toml"
-    auth_store    = AuthStore(auth_path)
+    data_dir       = Path(cfg.app.data_dir)
+    auth_store     = AuthStore(data_dir / "users.toml", legacy_path=data_dir / "auth.toml")
     login_throttle = LoginThrottle()
+    all_aliases    = [s.alias for s in cfg.sources]
 
     PUBLIC_PATHS = {"/login", "/logout", "/setup", "/favicon.ico"}
 
@@ -134,21 +136,39 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
     async def favicon():
         return FileResponse(_STATIC_DIR / "favicon.ico")
 
-    def _authenticated_user(request: Request) -> str | None:
+    def _current_user(request: Request) -> User | None:
         if not auth_store.exists():
             return None
         token = request.cookies.get(SESSION_COOKIE)
         if not token:
             return None
         try:
-            user = auth_store.load()
+            secret = auth_store.session_secret()
         except Exception:
             return None
-        # Check long TTL first (remember-me); fall back to short TTL.
-        uname = verify_session_token(user.session_secret, token, REMEMBER_SECONDS)
-        if uname and uname == user.username:
-            return uname
-        return None
+        # Long TTL covers both remember-me and session cookies (the cookie's own
+        # max_age enforces the shorter window for non-remembered logins).
+        res = verify_session_token(secret, token, REMEMBER_SECONDS)
+        if not res:
+            return None
+        uname, ver = res
+        user = auth_store.get(uname)
+        # Reject sessions whose password version is stale (password was changed).
+        if not user or ver != user.pw_version:
+            return None
+        return user
+
+    def _require_user(request: Request) -> User:
+        user = _current_user(request)
+        if not user:
+            raise HTTPException(401, "unauthorized")
+        return user
+
+    def _require_admin(request: Request) -> User:
+        user = _require_user(request)
+        if not user.is_admin:
+            raise HTTPException(403, "Admin access required")
+        return user
 
     # Pure-ASGI middleware (not BaseHTTPMiddleware) — the latter wraps streaming
     # responses in a task group that crashes on shutdown, spamming the log with
@@ -166,7 +186,7 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
                 await self.app(scope, receive, send)
                 return
             request = Request(scope)
-            if _authenticated_user(request):
+            if _current_user(request):
                 await self.app(scope, receive, send)
                 return
             if not auth_store.exists():
@@ -182,9 +202,8 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
 
     app.add_middleware(_AuthMiddleware)
 
-    def _issue_session_cookie(response: Response, username: str, remember: bool) -> None:
-        user = auth_store.load()
-        token = make_session_token(user.session_secret, username)
+    def _issue_session_cookie(response: Response, user: User, remember: bool) -> None:
+        token = make_session_token(auth_store.session_secret(), user.username, user.pw_version)
         max_age = REMEMBER_SECONDS if remember else None
         response.set_cookie(
             key      = SESSION_COOKIE,
@@ -229,9 +248,10 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
                 "request": request, "title": "Setup", "error": err, "username": uname,
             }, status_code=400)
 
-        auth_store.create(uname, password)
+        # First account is always the admin with access to every source.
+        user = auth_store.create(uname, password, is_admin=True, allowed_aliases=[ALL_ALIASES])
         resp = RedirectResponse("/", status_code=303)
-        _issue_session_cookie(resp, uname, remember=False)
+        _issue_session_cookie(resp, user, remember=False)
         return resp
 
     # ── Login / Logout ───────────────────────────────────────────────────────
@@ -239,7 +259,7 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
     async def login_get(request: Request):
         if not auth_store.exists():
             return RedirectResponse("/setup", status_code=303)
-        if _authenticated_user(request):
+        if _current_user(request):
             return RedirectResponse("/", status_code=303)
         return templates.TemplateResponse("login.html", {
             "request": request, "title": "Sign in", "error": None, "username": "",
@@ -270,12 +290,8 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
                 "username": uname,
             }, status_code=429)
 
-        try:
-            user = auth_store.load()
-        except Exception:
-            user = None
-
-        ok = bool(user and uname == user.username and verify_password(password, user.password_hash))
+        user = auth_store.get(uname)
+        ok   = bool(user and verify_password(password, user.password_hash))
         if not ok:
             lockout = login_throttle.record_failure()
             error   = _lockout_error(lockout) if lockout > 0 else "Invalid username or password."
@@ -287,7 +303,7 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
 
         login_throttle.record_success()
         resp = RedirectResponse("/", status_code=303)
-        _issue_session_cookie(resp, uname, remember=bool(remember))
+        _issue_session_cookie(resp, user, remember=bool(remember))
         return resp
 
     @app.post("/logout")
@@ -302,20 +318,25 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
         resp.delete_cookie(SESSION_COOKIE, path="/")
         return resp
 
-    # ── Settings ─────────────────────────────────────────────────────────────
+    # ── Settings (self-service) ──────────────────────────────────────────────
     @app.get("/api/settings")
-    async def settings_get():
-        user = auth_store.load()
-        return {"username": user.username, "created_at": user.created_at}
+    async def settings_get(request: Request):
+        user = _require_user(request)
+        return {
+            "username":        user.username,
+            "created_at":      user.created_at,
+            "is_admin":        user.is_admin,
+            "allowed_aliases": list(user.allowed_aliases),
+        }
 
     @app.post("/api/settings/password")
     async def settings_change_password(request: Request):
+        user = _require_user(request)
         body = await request.json()
         current  = str(body.get("current_password", ""))
         new_pw   = str(body.get("new_password", ""))
         confirm  = str(body.get("confirm_password", ""))
 
-        user = auth_store.load()
         if not verify_password(current, user.password_hash):
             raise HTTPException(400, "Current password is incorrect.")
         if len(new_pw) < MIN_PASSWORD_LENGTH:
@@ -323,23 +344,116 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
         if new_pw != confirm:
             raise HTTPException(400, "New passwords do not match.")
 
-        updated = auth_store.change_password(new_pw)
-        # Existing cookies (including the one that made this request) are
-        # invalidated by rotating session_secret — issue a fresh one so the
-        # user stays logged in on the current browser.
+        updated = auth_store.set_password(user.username, new_pw)
+        # Bumping pw_version invalidates this user's other sessions (including the
+        # cookie that made this request) — reissue so this browser stays logged in.
         resp = JSONResponse({"ok": True})
-        _issue_session_cookie(resp, updated.username, remember=False)
+        _issue_session_cookie(resp, updated, remember=False)
         return resp
+
+    # ── User management (admin only) ──────────────────────────────────────────
+    def _user_dto(u: User) -> dict:
+        return {
+            "username":        u.username,
+            "is_admin":        u.is_admin,
+            "allowed_aliases": list(u.allowed_aliases),
+            "created_at":      u.created_at,
+        }
+
+    def _validate_aliases(aliases: list[str]) -> None:
+        invalid = [a for a in aliases if a != ALL_ALIASES and a not in all_aliases]
+        if invalid:
+            raise HTTPException(400, f"Unknown source(s): {', '.join(invalid)}")
+
+    @app.get("/api/users")
+    async def list_users(request: Request):
+        _require_admin(request)
+        return {
+            "users":       [_user_dto(u) for u in auth_store.list()],
+            "all_aliases": all_aliases,
+        }
+
+    @app.post("/api/users")
+    async def create_user(request: Request):
+        _require_admin(request)
+        body     = await request.json()
+        uname    = str(body.get("username", "")).strip()
+        pw       = str(body.get("password", ""))
+        confirm  = str(body.get("confirm_password", ""))
+        is_admin = bool(body.get("is_admin", False))
+        aliases  = [str(a) for a in body.get("allowed_aliases", [])]
+
+        if not uname:
+            raise HTTPException(400, "Username is required.")
+        if len(pw) < MIN_PASSWORD_LENGTH:
+            raise HTTPException(400, f"Password must be at least {MIN_PASSWORD_LENGTH} characters.")
+        if pw != confirm:
+            raise HTTPException(400, "Passwords do not match.")
+        _validate_aliases(aliases)
+        try:
+            user = auth_store.create(uname, pw, is_admin=is_admin, allowed_aliases=aliases)
+        except UserExistsError:
+            raise HTTPException(409, f"User '{uname}' already exists.")
+        return _user_dto(user)
+
+    @app.put("/api/users/{username}")
+    async def update_user(username: str, request: Request):
+        _require_admin(request)
+        if not auth_store.get(username):
+            raise HTTPException(404, "User not found.")
+        body     = await request.json()
+        is_admin = bool(body.get("is_admin", False))
+        aliases  = [str(a) for a in body.get("allowed_aliases", [])]
+        _validate_aliases(aliases)
+        try:
+            user = auth_store.set_rights(username, is_admin, aliases)
+        except LastAdminError as e:
+            raise HTTPException(400, str(e))
+        return _user_dto(user)
+
+    @app.post("/api/users/{username}/password")
+    async def set_user_password(username: str, request: Request):
+        admin = _require_admin(request)
+        if not auth_store.get(username):
+            raise HTTPException(404, "User not found.")
+        body    = await request.json()
+        new_pw  = str(body.get("new_password", ""))
+        confirm = str(body.get("confirm_password", ""))
+        if len(new_pw) < MIN_PASSWORD_LENGTH:
+            raise HTTPException(400, f"Password must be at least {MIN_PASSWORD_LENGTH} characters.")
+        if new_pw != confirm:
+            raise HTTPException(400, "Passwords do not match.")
+        updated = auth_store.set_password(username, new_pw)
+        # If the admin reset their OWN password here, the bumped pw_version just
+        # invalidated their current cookie — reissue it so they stay logged in.
+        resp = JSONResponse({"ok": True})
+        if updated.username == admin.username:
+            _issue_session_cookie(resp, updated, remember=False)
+        return resp
+
+    @app.delete("/api/users/{username}")
+    async def delete_user(username: str, request: Request):
+        admin = _require_admin(request)
+        if username == admin.username:
+            raise HTTPException(400, "You cannot delete your own account.")
+        if not auth_store.get(username):
+            raise HTTPException(404, "User not found.")
+        try:
+            auth_store.delete(username)
+        except LastAdminError as e:
+            raise HTTPException(400, str(e))
+        return {"ok": True}
 
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request):
-        user      = auth_store.load()
+        user      = _require_user(request)
         agent_str = ", ".join(a.name for a in cfg.agents)
+        visible   = [s for s in cfg.sources if user.can_access(s.alias)]
         return templates.TemplateResponse("index.html", {
             "request":   request,
             "version":   __version__,
             "node_name": cfg.app.node_name,
-            "aliases":   [s.alias for s in cfg.sources],
+            "aliases":   [s.alias for s in visible],
             "sources":   [
                 {
                     "alias":       s.alias,
@@ -348,26 +462,35 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
                     "local_share": s.local_share,
                     "local_path":  s.local_path,
                 }
-                for s in cfg.sources
+                for s in visible
             ],
-            "agent_str": agent_str,
-            "username":  user.username,
+            "agent_str":   agent_str,
+            "username":    user.username,
+            "is_admin":    user.is_admin,
+            "all_aliases": all_aliases,
         })
 
     @app.post("/api/start")
-    async def start(background_tasks: BackgroundTasks):
+    async def start(request: Request, background_tasks: BackgroundTasks):
+        user = _require_user(request)
         if rt.status not in (AppStatus.IDLE, AppStatus.READY, AppStatus.DONE, AppStatus.ERROR):
             raise HTTPException(400, "Busy")
         rt.reset()
-        background_tasks.add_task(rt.run_scan)
+        aliases = None if user.has_all_access else list(user.allowed_aliases)
+        background_tasks.add_task(rt.run_scan, aliases)
         return {"ok": True}
 
     @app.get("/api/state")
-    async def get_state():
-        return rt.snapshot_for_ui()
+    async def get_state(request: Request):
+        user = _require_user(request)
+        snap = rt.snapshot_for_ui()
+        if not user.has_all_access:
+            snap = {**snap, "diffs": [d for d in snap["diffs"] if user.can_access(d["source_alias"])]}
+        return snap
 
     @app.get("/api/stream")
     async def stream(request: Request):
+        user = _require_user(request)
         async def gen():
             sent_total  = 0
             sent_status = None
@@ -393,10 +516,13 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
                             new_log = log_list
                         else:
                             new_log = log_list[-new_count:]
+                        diffs_out = snap["diffs"] if snap["status"] in ("ready", "syncing", "done") else []
+                        if diffs_out and not user.has_all_access:
+                            diffs_out = [d for d in diffs_out if user.can_access(d["source_alias"])]
                         payload = {
                             "status":       snap["status"],
                             "new_log":      new_log,
-                            "diffs":        snap["diffs"] if snap["status"] in ("ready", "syncing", "done") else [],
+                            "diffs":        diffs_out,
                             "mounts":       snap.get("mounts", []),
                             "error":        snap.get("error"),
                             "last_scan_at": snap.get("last_scan_at"),
@@ -413,10 +539,15 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
 
     @app.post("/api/execute")
     async def execute(request: Request, background_tasks: BackgroundTasks):
+        user = _require_user(request)
         if rt.status != AppStatus.READY:
             raise HTTPException(400, "Scan first")
         body = await request.json()
         req  = ExecuteRequest.from_dict(body)
+        # Enforce scope: a user may only act on sources they have rights to.
+        forbidden = sorted({a.source_alias for a in req.actions if not user.can_access(a.source_alias)})
+        if forbidden:
+            raise HTTPException(403, f"No access to source(s): {', '.join(forbidden)}")
         rt.status = AppStatus.SYNCING
         background_tasks.add_task(rt.run_sync, req.actions)
         return {"ok": True}

@@ -74,7 +74,7 @@ The two containers communicate over **Tailscale** (WireGuard-based VPN). No rout
 Salt & Soil is a **single-operator tool for a trusted network**, not a multi-tenant or hostile-network service. The design assumes:
 
 - **The agent API is unauthenticated.** Anyone on the Tailscale network can call `/mount`, `/unmount`, and `/list` on the agent. Trust lives at the VPN layer — if you expose the agent port on a public network, it is wide open.
-- **The orchestrator web UI has a single user account** (argon2-hashed password, signed session cookie, 5-strikes / 15-minute brute-force throttle). The throttle is in-memory and global — it resets on process restart and does not discriminate per IP.
+- **The orchestrator web UI supports multiple user accounts** (argon2-hashed passwords, signed session cookies, 5-strikes / 15-minute brute-force throttle). The first account is an administrator; admins manage other accounts and grant each user access to specific sources. The throttle is in-memory and global — it resets on process restart and does not discriminate per IP.
 - **Session cookies are not marked `secure`.** You can access the UI over plain HTTP on a trusted LAN; put it behind TLS (reverse proxy, Cloudflare Tunnel, …) before exposing it publicly.
 - **Both containers run privileged with root SSH** between them. This is required for NFS mounts and rsync; it is not a hardened setup.
 - **There is no CSRF token.** The SameSite=Lax cookie is the only cross-origin defense.
@@ -363,11 +363,23 @@ Open the web UI at `http://<container-ip>:<port>` (default port 8080, configurab
 
 ### First-run setup
 
-On first visit the orchestrator redirects to `/setup` to create the single user account (username + password, minimum 8 characters). After that, access to the UI and `/api/*` requires a signed session cookie issued by `/login`. The "Remember me" checkbox extends the cookie lifetime to 30 days.
+On first visit the orchestrator redirects to `/setup` to create the first account (username + password, minimum 8 characters). That first account is always an **administrator** with access to every source. After that, access to the UI and `/api/*` requires a signed session cookie issued by `/login`. The "Remember me" checkbox extends the cookie lifetime to 30 days.
 
-Passwords are hashed with **argon2** and the session-signing secret is rotated on every password change. Repeated failed logins are throttled: **5 failures** lock new attempts for **15 minutes**.
+Passwords are hashed with **argon2**. The session-signing secret is server-wide; each user carries a password version that is bumped on every password change, which invalidates that user's existing sessions (without logging out anyone else). Repeated failed logins are throttled: **5 failures** lock new attempts for **15 minutes**.
 
-Auth state lives in `./data/auth.toml` — delete that file to start over.
+Auth state lives in `./data/users.toml` — delete that file to start over.
+
+### Users and permissions
+
+Administrators get a **Users** tab in the web UI to manage accounts:
+
+- **Create users** with a username, password (entered twice), and either administrator rights or access to a chosen set of sources.
+- **Set passwords** for any user with two fields (new + repeat) — no current password required, since the admin is acting on their behalf.
+- **Edit rights** (admin flag and per-source access) or **delete** accounts.
+
+Permissions are enforced server-side: a non-admin user only sees, scans, and syncs the sources they are granted, and `/api/*` rejects any action outside their scope. The system always keeps at least one administrator — the last admin cannot be deleted or demoted.
+
+> **Upgrading from a single-user install:** on first start the legacy `./data/auth.toml` is migrated automatically — the existing account becomes the first administrator (with access to all sources) and `auth.toml` is renamed to `auth.toml.bak`. You'll need to log in once more, since the session format changed.
 
 ---
 
