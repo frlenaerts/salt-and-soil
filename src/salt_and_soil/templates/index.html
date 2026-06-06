@@ -1049,10 +1049,17 @@ async function startScan() {
   actions = {};
   if (diffs.length) renderFolders();
   setStatus('scanning');
+  let r;
   try {
-    await fetch('/api/start', {method:'POST'});
+    r = await fetch('/api/start', {method:'POST'});
   } catch {
     showBanner('error', '⚠ Network error starting scan');
+    const s = await fetch('/api/state').then(x => x.json()).catch(() => null);
+    if (s) setStatus(s.status);
+    return;
+  }
+  if (!r.ok) {
+    showBanner('error', '⚠ ' + await errText(r));
     const s = await fetch('/api/state').then(x => x.json()).catch(() => null);
     if (s) setStatus(s.status);
     return;
@@ -1369,8 +1376,7 @@ async function doExecute() {
     return;
   }
   if (!r.ok) {
-    const msg = await r.text().catch(() => 'Execute failed');
-    showBanner('error', '⚠ ' + msg);
+    showBanner('error', '⚠ ' + await errText(r));
     const s = await fetch('/api/state').then(x => x.json()).catch(() => null);
     if (s) setStatus(s.status);
     return;

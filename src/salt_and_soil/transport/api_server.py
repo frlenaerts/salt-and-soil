@@ -470,12 +470,23 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
             "all_aliases": all_aliases,
         })
 
+    def _busy_conflict(scan_first: bool) -> HTTPException:
+        """Build the response for a rejected scan/sync claim. Names the user who
+        holds the runtime when it's genuinely busy; falls back to 'scan first'
+        for a sync attempted from a non-ready (but free) state."""
+        if rt.busy_op:
+            who = f" by {rt.busy_user}" if rt.busy_user else ""
+            return HTTPException(409, f"A {rt.busy_op} is already in progress{who}.")
+        return HTTPException(400, "Scan first." if scan_first else "The system is busy.")
+
     @app.post("/api/start")
     async def start(request: Request, background_tasks: BackgroundTasks):
         user = _require_user(request)
-        if rt.status not in (AppStatus.IDLE, AppStatus.READY, AppStatus.DONE, AppStatus.ERROR):
-            raise HTTPException(400, "Busy")
-        rt.reset()
+        # Atomic claim (no await before it) — closes the race where two users
+        # could both pass a status check before either marked the runtime busy.
+        if not rt.try_begin_scan(user.username):
+            raise _busy_conflict(scan_first=False)
+        rt.reset(set_idle=False)   # clear prior log/diffs but keep the busy claim
         aliases = None if user.has_all_access else list(user.allowed_aliases)
         background_tasks.add_task(rt.run_scan, aliases)
         return {"ok": True}
@@ -540,15 +551,23 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
     @app.post("/api/execute")
     async def execute(request: Request, background_tasks: BackgroundTasks):
         user = _require_user(request)
-        if rt.status != AppStatus.READY:
-            raise HTTPException(400, "Scan first")
-        body = await request.json()
-        req  = ExecuteRequest.from_dict(body)
+        # Atomic claim first (succeeds only from READY) — no await precedes it,
+        # so two concurrent executes can't both get past it.
+        if not rt.try_begin_sync(user.username):
+            raise _busy_conflict(scan_first=True)
+        # From here we hold the claim; release it (abort_begin) on any rejection
+        # so the runtime doesn't stay stuck in a busy state.
+        try:
+            body = await request.json()
+            req  = ExecuteRequest.from_dict(body)
+        except Exception:
+            rt.abort_begin()
+            raise HTTPException(400, "Invalid request body.")
         # Enforce scope: a user may only act on sources they have rights to.
         forbidden = sorted({a.source_alias for a in req.actions if not user.can_access(a.source_alias)})
         if forbidden:
+            rt.abort_begin()
             raise HTTPException(403, f"No access to source(s): {', '.join(forbidden)}")
-        rt.status = AppStatus.SYNCING
         background_tasks.add_task(rt.run_sync, req.actions)
         return {"ok": True}
 

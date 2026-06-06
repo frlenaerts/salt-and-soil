@@ -45,6 +45,13 @@ class OrchestratorRuntime:
         self._last_scan_at: str | None = None
         self._cancel_requested: bool = False
         self._current_executor: SyncExecutor | None = None
+        # Concurrency: only one scan/sync may run at a time on this shared
+        # runtime. _busy_op/_busy_user describe the active operation (for the UI
+        # and conflict messages); _prev_status lets a claim be rolled back if
+        # request validation fails before the background task starts.
+        self._busy_op:   str | None = None
+        self._busy_user: str | None = None
+        self._prev_status = AppStatus.IDLE
 
         # Per (host, share) mount registry for the local NAS
         self.registry = MountRegistry(cfg.mount_defaults, side="local")
@@ -146,10 +153,61 @@ class OrchestratorRuntime:
         log.error(msg)
         self._append_log(f"{self._ts()} - ⚠ {msg}")
 
+    # ── Concurrency control ─────────────────────────────────────────────────────
+    # A single shared runtime runs at most one scan/sync at a time. The mutual
+    # exclusion is the status flag: try_begin_* flips it to MOUNTING (a busy
+    # state) so any later request is rejected. These methods are SYNCHRONOUS and
+    # must run on the event loop with no await between the check and the flip —
+    # a coroutine runs uninterrupted until it awaits, which makes the
+    # check-and-set atomic without needing a lock.
+
+    _FREE_STATES = (AppStatus.IDLE, AppStatus.READY, AppStatus.DONE, AppStatus.ERROR)
+
+    def try_begin_scan(self, username: str | None = None) -> bool:
+        if self.status not in self._FREE_STATES:
+            return False
+        self._claim("scan", username)
+        return True
+
+    def try_begin_sync(self, username: str | None = None) -> bool:
+        # Sync requires a prior scan (diffs to act on) → only from READY.
+        if self.status != AppStatus.READY:
+            return False
+        self._claim("sync", username)
+        return True
+
+    def _claim(self, op: str, username: str | None) -> None:
+        self._prev_status = self.status
+        self.status       = AppStatus.MOUNTING
+        self._busy_op     = op
+        self._busy_user   = username
+
+    def abort_begin(self) -> None:
+        """Release a claim taken by try_begin_* before its background task ran
+        (e.g. when request validation fails). Restores the prior status."""
+        self.status     = self._prev_status
+        self._busy_op   = None
+        self._busy_user = None
+
+    def _clear_busy(self) -> None:
+        self._busy_op   = None
+        self._busy_user = None
+
+    @property
+    def busy_op(self) -> str | None:
+        return self._busy_op
+
+    @property
+    def busy_user(self) -> str | None:
+        return self._busy_user
+
     # ── Reset ─────────────────────────────────────────────────────────────────
 
-    def reset(self):
-        self.status      = AppStatus.IDLE
+    def reset(self, set_idle: bool = True):
+        # set_idle=False preserves a claim's busy status (set by try_begin_scan)
+        # while still clearing the previous run's log/diffs.
+        if set_idle:
+            self.status = AppStatus.IDLE
         self._log        = []
         self._log_total  = 0
         self._diffs      = []
@@ -175,6 +233,8 @@ class OrchestratorRuntime:
             "last_scan_at": self._last_scan_at,
             "schedule":     self._schedule.to_dict(),
             "cancelled":    self._cancel_requested,
+            "busy_op":      self._busy_op,
+            "busy_user":    self._busy_user,
         }
 
     # ── Schedule ──────────────────────────────────────────────────────────────
@@ -198,6 +258,11 @@ class OrchestratorRuntime:
         SKIP — the comparer sets planned_action=SYNC for local_only, and
         run_sync only overrides actions it receives, so skipping needs to
         be stated explicitly for those folders."""
+        # Respect a manual scan/sync in progress — don't barge onto the shared
+        # runtime. Claim it ourselves so a user can't start one mid-cycle either.
+        if not self.try_begin_scan("scheduler"):
+            self._info(f"[{self._node}] ⏰ Scheduled run skipped — a {self._busy_op} is already running")
+            return
         self._error = ""
         self._info(f"[{self._node}] ⏰ Scheduled run starting")
         await self.run_scan()
@@ -214,6 +279,11 @@ class OrchestratorRuntime:
         to_sync = sum(1 for a in actions if a.action == SyncAction.SYNC)
         if not to_sync:
             self._info(f"[{self._node}] ⏰ Scheduled run — nothing to sync")
+            return
+        # run_scan cleared the claim and left us at READY; re-claim before the
+        # sync so a user who slipped in between isn't trampled.
+        if not self.try_begin_sync("scheduler"):
+            self._info(f"[{self._node}] ⏰ Scheduled sync skipped — a {self._busy_op} is already running")
             return
         self._info(f"[{self._node}] ⏰ Scheduled run — {to_sync} folder(s) to sync")
         await self.run_sync(actions)
@@ -394,6 +464,7 @@ class OrchestratorRuntime:
             self._err(str(e))
             self.status = AppStatus.ERROR
         finally:
+            self._clear_busy()
             if _did_mount:
                 await self._do_unmount_all(sources)
 
@@ -483,6 +554,7 @@ class OrchestratorRuntime:
             self.status = AppStatus.ERROR
         finally:
             self._current_executor = None
+            self._clear_busy()
             if _did_mount:
                 await self._do_unmount_all(sources)
 
