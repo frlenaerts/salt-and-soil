@@ -379,6 +379,8 @@ Administrators get a **Users** tab in the web UI to manage accounts:
 
 Permissions are enforced server-side: a non-admin user only sees, scans, and syncs the sources they are granted, and `/api/*` rejects any action outside their scope. The system always keeps at least one administrator — the last admin cannot be deleted or demoted.
 
+The **activity log is scoped per user too** — each line is tagged with the source(s) it concerns and filtered before it reaches the browser, so a user never sees scan/sync output (folder names, transfer lines, mount details, error banners) for sources they can't access, including work an admin runs across other sources. Only generic, non-identifying status lines ("Scanning…", "Sync complete") are shown to everyone.
+
 > **Upgrading from a single-user install:** on first start the legacy `./data/auth.toml` is migrated automatically — the existing account becomes the first administrator (with access to all sources) and `auth.toml` is renamed to `auth.toml.bak`. You'll need to log in once more, since the session format changed.
 
 ---

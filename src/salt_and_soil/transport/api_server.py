@@ -479,6 +479,38 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
             return HTTPException(409, f"A {rt.busy_op} is already in progress{who}.")
         return HTTPException(400, "Scan first." if scan_first else "The system is busy.")
 
+    def _scope_visible(user: User, scope) -> bool:
+        """A log/error/mount item is visible to a user if it's global (scope is
+        None) or concerns at least one source the user may access."""
+        if scope is None or user.has_all_access:
+            return True
+        return any(user.can_access(a) for a in scope)
+
+    def _filter_log(entries: list, user: User) -> list:
+        """Project structured log entries ({text, scope}) to the plain strings a
+        user is allowed to see."""
+        if user.has_all_access:
+            return [e["text"] for e in entries]
+        return [e["text"] for e in entries if _scope_visible(user, e["scope"])]
+
+    def _filter_mounts(mounts: list, user: User) -> list:
+        if user.has_all_access:
+            return mounts
+        return [m for m in mounts if _scope_visible(user, m.get("aliases"))]
+
+    def _project_snapshot(snap: dict, user: User) -> dict:
+        """Per-user view of a runtime snapshot: filter log, diffs, mounts, and
+        hide the error banner if it concerns sources the user can't access."""
+        out = dict(snap)
+        out["log"] = _filter_log(snap["log"], user)
+        if not user.has_all_access:
+            out["diffs"]  = [d for d in snap["diffs"] if user.can_access(d["source_alias"])]
+            out["mounts"] = _filter_mounts(snap.get("mounts", []), user)
+        if not _scope_visible(user, snap.get("error_scope")):
+            out["error"] = ""
+        out.pop("error_scope", None)
+        return out
+
     @app.post("/api/start")
     async def start(request: Request, background_tasks: BackgroundTasks):
         user = _require_user(request)
@@ -494,10 +526,7 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
     @app.get("/api/state")
     async def get_state(request: Request):
         user = _require_user(request)
-        snap = rt.snapshot_for_ui()
-        if not user.has_all_access:
-            snap = {**snap, "diffs": [d for d in snap["diffs"] if user.can_access(d["source_alias"])]}
-        return snap
+        return _project_snapshot(rt.snapshot_for_ui(), user)
 
     @app.get("/api/stream")
     async def stream(request: Request):
@@ -519,23 +548,31 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
                     if cur_total < sent_total:
                         sent_total = 0
                     if snap["status"] != sent_status or cur_total != sent_total:
+                        # Slice the new entries on the FULL (unfiltered) log so the
+                        # global delta stays correct, then project to the strings
+                        # this user may see — a user can receive fewer lines than
+                        # the global delta, which is fine.
                         log_list  = snap["log"]
                         new_count = cur_total - sent_total
                         if new_count <= 0:
-                            new_log = []
+                            new_entries = []
                         elif new_count >= len(log_list):
-                            new_log = log_list
+                            new_entries = log_list
                         else:
-                            new_log = log_list[-new_count:]
+                            new_entries = log_list[-new_count:]
+                        new_log = _filter_log(new_entries, user)
                         diffs_out = snap["diffs"] if snap["status"] in ("ready", "syncing", "done") else []
                         if diffs_out and not user.has_all_access:
                             diffs_out = [d for d in diffs_out if user.can_access(d["source_alias"])]
+                        err = snap.get("error")
+                        if err and not _scope_visible(user, snap.get("error_scope")):
+                            err = None
                         payload = {
                             "status":       snap["status"],
                             "new_log":      new_log,
                             "diffs":        diffs_out,
-                            "mounts":       snap.get("mounts", []),
-                            "error":        snap.get("error"),
+                            "mounts":       _filter_mounts(snap.get("mounts", []), user),
+                            "error":        err,
                             "last_scan_at": snap.get("last_scan_at"),
                             "schedule":     snap.get("schedule"),
                             "cancelled":    snap.get("cancelled", False),

@@ -37,11 +37,15 @@ class OrchestratorRuntime:
     def __init__(self, cfg: Config):
         self.cfg    = cfg
         self.status = AppStatus.IDLE
-        self._log:  list[str] = []
+        # Each log entry is (text, scope): scope is None for global lines or a
+        # frozenset of source aliases the line concerns. The web layer filters
+        # entries per user so nobody sees activity for sources they can't access.
+        self._log:  list[tuple[str, frozenset[str] | None]] = []
         self._log_total: int = 0
         self._diffs: list[FolderDiff] = []
         self._mounts_info: list[dict] = []
         self._error: str = ""
+        self._error_scope: frozenset[str] | None = None
         self._last_scan_at: str | None = None
         self._cancel_requested: bool = False
         self._current_executor: SyncExecutor | None = None
@@ -139,19 +143,35 @@ class OrchestratorRuntime:
         from datetime import datetime
         return datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
-    def _append_log(self, line: str):
-        self._log.append(line)
+    @staticmethod
+    def _scope(aliases) -> frozenset[str] | None:
+        """Normalise a scope argument: None → global; otherwise a frozenset of
+        the aliases a log line concerns."""
+        if aliases is None:
+            return None
+        if isinstance(aliases, str):
+            return frozenset({aliases})
+        return frozenset(aliases)
+
+    def _aliases_for_local_share(self, host: str, share: str, among) -> frozenset[str]:
+        return frozenset(s.alias for s in among if s.local_host == host and s.local_share == share)
+
+    def _aliases_for_remote_share(self, agent_name: str, share: str, among) -> frozenset[str]:
+        return frozenset(s.alias for s in among if s.agent == agent_name and s.remote_share == share)
+
+    def _append_log(self, line: str, scope=None):
+        self._log.append((line, self._scope(scope)))
         self._log_total += 1
         if len(self._log) > _LOG_CAP:
             self._log = self._log[-_LOG_CAP:]
 
-    def _info(self, msg: str):
+    def _info(self, msg: str, scope=None):
         log.info(msg)
-        self._append_log(f"{self._ts()} - {msg}")
+        self._append_log(f"{self._ts()} - {msg}", scope)
 
-    def _err(self, msg: str):
+    def _err(self, msg: str, scope=None):
         log.error(msg)
-        self._append_log(f"{self._ts()} - ⚠ {msg}")
+        self._append_log(f"{self._ts()} - ⚠ {msg}", scope)
 
     # ── Concurrency control ─────────────────────────────────────────────────────
     # A single shared runtime runs at most one scan/sync at a time. The mutual
@@ -213,6 +233,7 @@ class OrchestratorRuntime:
         self._diffs      = []
         self._mounts_info = []
         self._error      = ""
+        self._error_scope = None
         self._cancel_requested = False
 
     def clear_log(self):
@@ -225,11 +246,15 @@ class OrchestratorRuntime:
     def snapshot_for_ui(self) -> dict[str, Any]:
         return {
             "status":       self.status.value,
-            "log":          list(self._log),
+            # Structured log: each entry carries the scope used to filter it per
+            # user in the web layer. log_total counts ALL lines (global position)
+            # so the SSE delta math stays correct regardless of per-user filtering.
+            "log":          [{"text": t, "scope": (list(s) if s is not None else None)} for t, s in self._log],
             "log_total":    self._log_total,
             "diffs":        [_diff_to_dict(d) for d in self._diffs],
             "mounts":       list(self._mounts_info),
             "error":        self._error,
+            "error_scope":  (list(self._error_scope) if self._error_scope is not None else None),
             "last_scan_at": self._last_scan_at,
             "schedule":     self._schedule.to_dict(),
             "cancelled":    self._cancel_requested,
@@ -298,13 +323,15 @@ class OrchestratorRuntime:
         unique_pairs = sorted({(s.local_host, s.local_share) for s in sources})
         self._mounts_info = []
         for host, share in unique_pairs:
-            self._info(f"[{self._node}] Mounting {share}...")
+            scope = self._aliases_for_local_share(host, share, sources)
+            self._info(f"[{self._node}] Mounting {share}...", scope)
             nfs  = self.registry.get_or_create(host, share)
             info = await nfs.mount()
             self._mounts_info.append({
                 "side":        "local",
                 "host":        host,
                 "share":       share,
+                "aliases":     sorted(scope),
                 "mount_point": nfs.mount_point,
                 "status":      info.status.value,
                 "writable":    info.writable,
@@ -312,7 +339,7 @@ class OrchestratorRuntime:
                 "free":        human_size(info.free_bytes),
             })
             assert_mount_ok(info)
-            self._info(f"[{self._node}] Mounted {share} — {human_size(info.total_bytes)} total, {human_size(info.free_bytes)} free")
+            self._info(f"[{self._node}] Mounted {share} — {human_size(info.total_bytes)} total, {human_size(info.free_bytes)} free", scope)
             if is_path_empty(nfs.mount_point):
                 raise MountCheckError(f"Mount path {nfs.mount_point} is empty — NFS share may not be configured correctly")
 
@@ -324,8 +351,9 @@ class OrchestratorRuntime:
             logged_shares: set[str] = set()
             for src in (s for s in sources if s.agent == agent_name):
                 first_for_share = src.remote_share not in logged_shares
+                scope = self._aliases_for_remote_share(agent_name, src.remote_share, sources)
                 if first_for_share:
-                    self._info(f"[{agent_name}] Mounting {src.remote_share}...")
+                    self._info(f"[{agent_name}] Mounting {src.remote_share}...", scope)
                 resp = await agent.mount(src.alias)
                 if not resp.ok:
                     raise RuntimeError(f"[{agent_name}] Mount {src.remote_share} failed: {resp.error}")
@@ -335,7 +363,7 @@ class OrchestratorRuntime:
                         f" — {human_size(resp.total_bytes)} total, {human_size(resp.free_bytes)} free"
                         if resp.total_bytes else ""
                     )
-                    self._info(f"[{agent_name}] Mounted {src.remote_share}{size_info}")
+                    self._info(f"[{agent_name}] Mounted {src.remote_share}{size_info}", scope)
 
             # Pull mount points from /status so we know where the agent actually mounted
             try:
@@ -351,31 +379,35 @@ class OrchestratorRuntime:
     async def _do_unmount_all(self, sources: list[SourceConfig]) -> None:
         # Local: one log line per share
         for nfs in self.registry.all():
+            scope = frozenset(s.alias for s in sources if s.local_share == nfs.share)
             try:
                 await nfs.unmount()
-                self._info(f"[{self._node}] Unmounted {nfs.share}")
+                self._info(f"[{self._node}] Unmounted {nfs.share}", scope)
             except Exception as e:
-                self._err(f"[{self._node}] Unmount {nfs.share} failed: {e}")
+                self._err(f"[{self._node}] Unmount {nfs.share} failed: {e}", scope)
         # Remote: unmount every alias (agent dedups internally), log once per share
         for agent_name, agent in self.agent_clients.items():
             logged_shares: set[str] = set()
             for src in (s for s in sources if s.agent == agent_name):
                 first_for_share = src.remote_share not in logged_shares
+                scope = self._aliases_for_remote_share(agent_name, src.remote_share, sources)
                 try:
                     await agent.unmount(src.alias)
                     if first_for_share:
                         logged_shares.add(src.remote_share)
-                        self._info(f"[{agent_name}] Unmounted {src.remote_share}")
+                        self._info(f"[{agent_name}] Unmounted {src.remote_share}", scope)
                 except Exception as e:
                     if first_for_share:
                         logged_shares.add(src.remote_share)
-                        self._err(f"[{agent_name}] Unmount {src.remote_share} failed: {e}")
+                        self._err(f"[{agent_name}] Unmount {src.remote_share} failed: {e}", scope)
 
     async def _do_scan_and_compare(self, sources: list[SourceConfig]) -> None:
         """Scan both sides, compare, persist diffs. Assumes mounts are active."""
         self.status = AppStatus.SCANNING
-        aliases = [s.alias for s in sources]
-        self._info(f"[{self._node}] Scanning: {', '.join(aliases)}...")
+        # Per-source "Scanning {alias}…" lines are scoped below; the header stays
+        # generic (count only) so it never leaks the names of sources a viewer
+        # has no rights to.
+        self._info(f"[{self._node}] Scanning {len(sources)} source(s)...")
         scanner = DirScanner(
             node_name = self.cfg.app.node_name,
             excludes  = self.cfg.sync.excludes,
@@ -386,16 +418,16 @@ class OrchestratorRuntime:
             snap      = await scanner.scan_source(scan_path, src.alias)
             local_snaps[src.alias] = snap
             self.repo.save_snapshot(snap)
-            self._info(f"[{self._node}] {src.alias}: {snap.entry_count} folders, {human_size(snap.total_size)}")
+            self._info(f"[{self._node}] {src.alias}: {snap.entry_count} folders, {human_size(snap.total_size)}", src.alias)
 
         remote_snaps: dict[str, ScanSnapshot] = {}
         for src in sources:
             agent_name = src.agent
             agent      = self.agent_clients.get(agent_name)
             if not agent:
-                self._err(f"[{src.alias}] No client for agent '{agent_name}' — skipping remote scan")
+                self._err(f"[{src.alias}] No client for agent '{agent_name}' — skipping remote scan", src.alias)
                 continue
-            self._info(f"[{agent_name}] Scanning '{src.alias}'...")
+            self._info(f"[{agent_name}] Scanning '{src.alias}'...", src.alias)
             resp = await agent.list_dirs(src.alias)
             from ..scanner.models import ScanEntry
             entries = [
@@ -417,9 +449,10 @@ class OrchestratorRuntime:
                 total_size   = sum(d.size_bytes for d in resp.dirs),
             )
             remote_snaps[src.alias] = remote_snap
-            self._info(f"[{agent_name}] {src.alias}: {remote_snap.entry_count} folders, {human_size(remote_snap.total_size)}")
+            self._info(f"[{agent_name}] {src.alias}: {remote_snap.entry_count} folders, {human_size(remote_snap.total_size)}", src.alias)
 
-        self._info(f"[{self._node}] Comparing with agent...")
+        scan_scope = frozenset(s.alias for s in sources)
+        self._info(f"[{self._node}] Comparing with agent...", scan_scope)
         all_diffs: list[FolderDiff] = []
         for src in sources:
             diffs   = compare(local_snaps[src.alias], remote_snaps.get(src.alias))
@@ -428,7 +461,7 @@ class OrchestratorRuntime:
             needs   = sum(1 for d in diffs if d.diff_status.value == "needs_sync")
             only_l  = sum(1 for d in diffs if d.diff_status.value == "local_only")
             only_r  = sum(1 for d in diffs if d.diff_status.value == "remote_only")
-            self._info(f"[{self._node}] {src.alias}: {in_sync} in sync, {needs} different, {only_l} local only, {only_r} remote only")
+            self._info(f"[{self._node}] {src.alias}: {in_sync} in sync, {needs} different, {only_l} local only, {only_r} remote only", src.alias)
 
         # Merge: replace only the diffs of the sources we just scanned, keeping
         # any diffs from sources outside this scan's scope (e.g. an admin's full
@@ -447,12 +480,13 @@ class OrchestratorRuntime:
         self.repo.save_state(state)
 
         self._last_scan_at = state.last_scan_at
-        self._info(f"[{self._node}] Scan complete — {len(all_diffs)} folders found")
+        self._info(f"[{self._node}] Scan complete — {len(all_diffs)} folders found", scan_scope)
 
     async def run_scan(self, aliases: list[str] | None = None):
         self.status = AppStatus.MOUNTING
         self._cancel_requested = False
         sources = self._selected_sources(aliases)
+        op_scope = frozenset(s.alias for s in sources)
         _did_mount = False
         try:
             await self._do_mount_all(sources)
@@ -461,7 +495,8 @@ class OrchestratorRuntime:
             self.status = AppStatus.READY
         except Exception as e:
             self._error = str(e)
-            self._err(str(e))
+            self._error_scope = op_scope
+            self._err(str(e), op_scope)
             self.status = AppStatus.ERROR
         finally:
             self._clear_busy()
@@ -475,6 +510,7 @@ class OrchestratorRuntime:
         # or sync a source the caller didn't ask for.
         active_aliases = sorted({a.source_alias for a in actions if a.action != SyncAction.SKIP})
         sources = self._selected_sources(active_aliases)
+        op_scope = frozenset(active_aliases)
         try:
             self.status = AppStatus.MOUNTING
             remote_mps = await self._do_mount_all(sources)
@@ -491,7 +527,7 @@ class OrchestratorRuntime:
             jobs  = build_jobs(self._diffs)
             to_do = [j for j in jobs if j.action != SyncAction.SKIP]
             self.status = AppStatus.SYNCING
-            self._info(f"[{self._node}] Starting sync — {len(to_do)} jobs...")
+            self._info(f"[{self._node}] Starting sync — {len(to_do)} jobs...", op_scope)
 
             # Group jobs by agent (each source belongs to exactly one agent);
             # build one executor per agent so each job rsyncs to the correct host.
@@ -513,11 +549,11 @@ class OrchestratorRuntime:
                     break
                 src = self.sources_by_alias.get(job.source_alias)
                 if not src:
-                    self._err(f"Skipping job for unknown source '{job.source_alias}'")
+                    self._err(f"Skipping job for unknown source '{job.source_alias}'", job.source_alias)
                     continue
                 executor = executors_by_agent.get(src.agent)
                 if not executor:
-                    self._err(f"Skipping job '{job.source_alias}/{job.folder}': no executor for agent '{src.agent}'")
+                    self._err(f"Skipping job '{job.source_alias}/{job.folder}': no executor for agent '{src.agent}'", job.source_alias)
                     continue
                 self._current_executor = executor
                 icon = {
@@ -525,9 +561,9 @@ class OrchestratorRuntime:
                     SyncAction.PULL:          "↓",
                     SyncAction.DELETE_REMOTE: "✕",
                 }.get(job.action, "?")
-                self._info(f"[{self._node}] {icon} {job.source_alias}/{job.folder}")
+                self._info(f"[{self._node}] {icon} {job.source_alias}/{job.folder}", job.source_alias)
                 async for line in executor.execute(job):
-                    self._append_log(f"{self._ts()} - [{self._node}]    {line}")
+                    self._append_log(f"{self._ts()} - [{self._node}]    {line}", job.source_alias)
                 completed.append(job)
 
             self._current_executor = None
@@ -538,9 +574,9 @@ class OrchestratorRuntime:
             self.repo.save_state(state)
 
             if self._cancel_requested:
-                self._info(f"[{self._node}] Sync cancelled — rescanning to refresh folder status")
+                self._info(f"[{self._node}] Sync cancelled — rescanning to refresh folder status", op_scope)
             else:
-                self._info(f"[{self._node}] Sync complete")
+                self._info(f"[{self._node}] Sync complete", op_scope)
 
             if rescan_after:
                 await self._do_scan_and_compare(sources)
@@ -550,7 +586,8 @@ class OrchestratorRuntime:
 
         except Exception as e:
             self._error = str(e)
-            self._err(str(e))
+            self._error_scope = op_scope
+            self._err(str(e), op_scope)
             self.status = AppStatus.ERROR
         finally:
             self._current_executor = None
