@@ -22,7 +22,7 @@ from ..state.models import FolderDiff
 from ..sync.comparer import compare
 from ..sync.planner import build_jobs
 from ..sync.executor import SyncExecutor, ResolvedSource
-from ..transport.api_client import AgentAPIClient
+from ..transport.api_client import AgentAPIClient, AgentUnreachableError
 from ..transport.dtos import ActionItem
 from ..shared.enums import AppStatus, DiffStatus, SyncAction
 from ..shared.clock import utc_now_iso
@@ -45,6 +45,9 @@ class OrchestratorRuntime:
         self._last_scan_at: str | None = None
         self._cancel_requested: bool = False
         self._current_executor: SyncExecutor | None = None
+        # Agents that were sent a /mount this run and so need an /unmount,
+        # even if mounting failed halfway (e.g. the agent timed out mid-mount).
+        self._agents_to_unmount: set[str] = set()
 
         # Per (host, share) mount registry for the local NAS
         self.registry = MountRegistry(cfg.mount_defaults, side="local")
@@ -54,7 +57,7 @@ class OrchestratorRuntime:
         self.sources_by_alias: dict[str, SourceConfig] = {s.alias: s for s in cfg.sources}
         self.agents_by_name: dict[str, AgentConfig]    = {a.name: a for a in cfg.agents}
         self.agent_clients: dict[str, AgentAPIClient]  = {
-            a.name: AgentAPIClient(base_url=f"http://{a.host}:{a.port}", api_key=a.api_key)
+            a.name: AgentAPIClient(base_url=f"http://{a.host}:{a.port}", api_key=a.api_key, name=a.name)
             for a in cfg.agents
         }
 
@@ -246,7 +249,14 @@ class OrchestratorRuntime:
                 first_for_share = src.remote_share not in logged_shares
                 if first_for_share:
                     self._info(f"[{agent_name}] Mounting {src.remote_share}...")
-                resp = await agent.mount(src.alias)
+                self._agents_to_unmount.add(agent_name)
+                try:
+                    resp = await agent.mount(src.alias)
+                except AgentUnreachableError:
+                    # The request never reached the agent: nothing to undo
+                    # there, and an /unmount would only hit the same wall.
+                    self._agents_to_unmount.discard(agent_name)
+                    raise
                 if not resp.ok:
                     raise RuntimeError(f"[{agent_name}] Mount {src.remote_share} failed: {resp.error}")
                 if first_for_share:
@@ -269,15 +279,22 @@ class OrchestratorRuntime:
         return remote_mount_points
 
     async def _do_unmount_all(self) -> None:
+        """Release whatever the last _do_mount_all managed to mount. Safe to
+        call after a partial mount failure: shares that aren't mounted and
+        agents that were never reached are skipped."""
         # Local: one log line per share
         for nfs in self.registry.all():
             try:
+                if not await nfs.is_mounted():
+                    continue
                 await nfs.unmount()
                 self._info(f"[{self._node}] Unmounted {nfs.share}")
             except Exception as e:
-                self._err(f"[{self._node}] Unmount {nfs.share} failed: {e}")
+                self._err(f"[{self._node}] Unmount {nfs.share} failed: {_describe(e)}")
         # Remote: unmount every alias (agent dedups internally), log once per share
-        for agent_name, agent in self.agent_clients.items():
+        agents = [(n, a) for n, a in self.agent_clients.items() if n in self._agents_to_unmount]
+        self._agents_to_unmount.clear()
+        for agent_name, agent in agents:
             logged_shares: set[str] = set()
             for src in (s for s in self.cfg.sources if s.agent == agent_name):
                 first_for_share = src.remote_share not in logged_shares
@@ -289,7 +306,9 @@ class OrchestratorRuntime:
                 except Exception as e:
                     if first_for_share:
                         logged_shares.add(src.remote_share)
-                        self._err(f"[{agent_name}] Unmount {src.remote_share} failed: {e}")
+                        self._err(f"[{agent_name}] Unmount {src.remote_share} failed: {_describe(e)}")
+                    if isinstance(e, AgentUnreachableError):
+                        break  # agent is gone — don't wait out a timeout per alias
 
     async def _do_scan_and_compare(self) -> None:
         """Scan both sides, compare, persist diffs. Assumes mounts are active."""
@@ -364,27 +383,24 @@ class OrchestratorRuntime:
     async def run_scan(self):
         self.status = AppStatus.MOUNTING
         self._cancel_requested = False
-        _did_mount = False
         try:
             await self._do_mount_all()
-            _did_mount = True
             await self._do_scan_and_compare()
             self.status = AppStatus.READY
         except Exception as e:
-            self._error = str(e)
-            self._err(str(e))
+            self._error = _describe(e)
+            self._err(self._error)
             self.status = AppStatus.ERROR
         finally:
-            if _did_mount:
-                await self._do_unmount_all()
+            # Also after a partial mount failure — otherwise shares that did
+            # mount stay mounted and keep the NAS awake.
+            await self._do_unmount_all()
 
     async def run_sync(self, actions: list[ActionItem], rescan_after: bool = True):
-        _did_mount = False
         self._cancel_requested = False
         try:
             self.status = AppStatus.MOUNTING
             remote_mps = await self._do_mount_all()
-            _did_mount = True
 
             action_map = {(a.source_alias, a.folder): a.action for a in actions}
             for diff in self._diffs:
@@ -453,13 +469,12 @@ class OrchestratorRuntime:
                 self.status = AppStatus.DONE
 
         except Exception as e:
-            self._error = str(e)
-            self._err(str(e))
+            self._error = _describe(e)
+            self._err(self._error)
             self.status = AppStatus.ERROR
         finally:
             self._current_executor = None
-            if _did_mount:
-                await self._do_unmount_all()
+            await self._do_unmount_all()
 
     async def request_cancel(self) -> bool:
         """Request cancellation of an in-progress sync. Terminates the current
@@ -488,6 +503,12 @@ class OrchestratorRuntime:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _describe(e: BaseException) -> str:
+    """str(e), falling back to the exception type — some exceptions (notably
+    httpx timeouts) stringify to '' and would otherwise log as a bare '⚠'."""
+    return str(e) or type(e).__name__
+
 
 def _diff_to_dict(d: FolderDiff) -> dict:
     return {
