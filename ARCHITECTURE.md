@@ -4,7 +4,14 @@ This document provides developer-oriented guidance for working with the Salt & S
 
 ## Git Commits
 
-Do not add automated co-author lines from tooling in commit messages.
+All commits, pull requests and merges are made under the maintainer's name — never under the name of an AI tool or bot. Before committing, make sure the repo identity is set:
+
+```bash
+git config user.name  "Frank Lenaerts"
+git config user.email "fr.lenaerts@gmail.com"
+```
+
+Do not add co-author lines, session links or other tooling trailers to commit messages, and no "generated with …" footers in pull request descriptions.
 
 ## Project Overview
 
