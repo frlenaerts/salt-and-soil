@@ -77,6 +77,18 @@ class AuthStore:
         self.save(user)
         return user
 
+    def rotate_session_secret(self) -> AuthUser:
+        """Invalidate every existing session; the password stays as it is."""
+        current = self.load()
+        updated = AuthUser(
+            username       = current.username,
+            password_hash  = current.password_hash,
+            session_secret = secrets.token_hex(32),
+            created_at     = current.created_at,
+        )
+        self.save(updated)
+        return updated
+
     def change_password(self, new_plain_password: str) -> AuthUser:
         """Rotate password + session_secret (invalidates all existing sessions)."""
         current = self.load()

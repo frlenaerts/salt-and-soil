@@ -37,7 +37,7 @@ from ..auth.password import (
     MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH, dummy_verify, prepare_dummy_hash,
 )
 from ..auth.throttle import client_key
-from ..auth.session import SESSION_COOKIE, REMEMBER_SECONDS, SESSION_SECONDS
+from ..auth.session import SESSION_COOKIE, REMEMBER_SECONDS
 from ..config.models import Config
 from ..schedule.models import Schedule
 from ..shared.enums import AppStatus, NodeRole
@@ -207,8 +207,8 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
             user = auth_store.load()
         except Exception:
             return None
-        # Check long TTL first (remember-me); fall back to short TTL.
-        uname = verify_session_token(user.session_secret, token, REMEMBER_SECONDS)
+        # The token carries its own lifetime (24 h, or 30 days with "Remember me").
+        uname = verify_session_token(user.session_secret, token)
         if uname and uname == user.username:
             return uname
         return None
@@ -256,7 +256,7 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
 
     def _issue_session_cookie(response: Response, username: str, remember: bool) -> None:
         user = auth_store.load()
-        token = make_session_token(user.session_secret, username)
+        token = make_session_token(user.session_secret, username, remember=remember)
         max_age = REMEMBER_SECONDS if remember else None
         response.set_cookie(
             key      = SESSION_COOKIE,
@@ -378,14 +378,15 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
         _issue_session_cookie(resp, uname, remember=bool(remember))
         return resp
 
+    # POST only: a GET here would let any page sign the user out with an <img>.
     @app.post("/logout")
-    async def logout_post():
-        resp = RedirectResponse("/login", status_code=303)
-        resp.delete_cookie(SESSION_COOKIE, path="/")
-        return resp
-
-    @app.get("/logout")
-    async def logout_get():
+    async def logout_post(request: Request):
+        # Session tokens are stateless, so the only way to really end one is
+        # to retire the key that signed it. With a single account that means
+        # "sign out everywhere". Only a signed-in request may trigger it —
+        # /logout is a public path.
+        if _authenticated_user(request):
+            auth_store.rotate_session_secret()
         resp = RedirectResponse("/login", status_code=303)
         resp.delete_cookie(SESSION_COOKIE, path="/")
         return resp

@@ -79,7 +79,7 @@ Salt & Soil is a **single-operator tool for a trusted network**, not a multi-ten
 - **Both containers run privileged with root SSH** between them. This is required for NFS mounts and rsync; it is not a hardened setup.
 - **No CSRF token, but an origin check.** State-changing requests are only accepted from the UI's own origin (`Origin` / `Sec-Fetch-Site` headers), on top of the SameSite=Lax cookie. If a reverse proxy rewrites the `Host` header and the UI answers *Cross-origin request rejected*, list the address you open in the browser under `[server] allowed_origins`.
 
-If your threat model includes hostile actors on your internal network, or you plan to expose this publicly without additional auth in front of it, this tool is — *for now* — not the right fit. The current model is sufficient for the author's personal use; stricter auth (agent tokens, CSRF, `secure` cookies) may land in a future version.
+If your threat model includes hostile actors on your internal network, or you plan to expose this publicly without additional auth in front of it, this tool is — *for now* — not the right fit. The current model is sufficient for the author's personal use; stricter auth (mandatory agent tokens, TLS, `secure` cookies) may land in a future version. Open and resolved findings are tracked in [SECURITY_AUDIT.md](SECURITY_AUDIT.md).
 
 ---
 
@@ -371,9 +371,9 @@ Creating the account requires a one-time **setup token**, so that only someone w
 journalctl -u salt-and-soil | grep token
 ```
 
-After that, access to the UI and `/api/*` requires a signed session cookie issued by `/login`. The "Remember me" checkbox extends the cookie lifetime to 30 days.
+After that, access to the UI and `/api/*` requires a signed session cookie issued by `/login`. A session lasts 24 hours; the "Remember me" checkbox extends that to 30 days. Logging out ends every session of the account, on all devices.
 
-Passwords are hashed with **argon2** and the session-signing secret is rotated on every password change. Repeated failed logins are throttled per client address: **5 failures** lock that address out for **15 minutes**. As a ceiling against guessing from many addresses, 20 failures in total within 15 minutes lock everyone out for 15 minutes.
+Passwords are hashed with **argon2** and the session-signing secret is rotated on every password change and every logout. Repeated failed logins are throttled per client address: **5 failures** lock that address out for **15 minutes**. As a ceiling against guessing from many addresses, 20 failures in total within 15 minutes lock everyone out for 15 minutes.
 
 Auth state lives in `./data/auth.toml` — delete that file to start over (a new setup token is then written to the log).
 

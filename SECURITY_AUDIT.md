@@ -32,7 +32,7 @@
 | [SEC-06](#sec-06) | Medium | First-run `/setup` is open to whoever reaches it first (and reopens if `auth.toml` is missing) | One-time setup token from the journal, or a CLI `create-user` | Fixed |
 | [SEC-07](#sec-07) | Medium | Pinned dependencies with known CVEs (pre-auth DoS in form parsing) | Bump `fastapi`/`starlette`, `python-multipart`, `jinja2`, `pytest`; add `pip-audit` | Fixed |
 | [SEC-08](#sec-08) | Low | Login throttle is global (anyone can lock the operator out) + username timing oracle | Per-IP throttle with backoff; dummy hash verify for unknown users | Fixed |
-| [SEC-09](#sec-09) | Low | Sessions cannot be revoked; valid 30 days regardless of "Remember me"; logout via GET | Enforce 24 h for non-remember tokens; rotate secret on logout; drop `GET /logout` | Open |
+| [SEC-09](#sec-09) | Low | Sessions cannot be revoked; valid 30 days regardless of "Remember me"; logout via GET | Enforce 24 h for non-remember tokens; rotate secret on logout; drop `GET /logout` | Fixed |
 | [SEC-10](#sec-10) | Low | CSRF defence is `SameSite=Lax` only; JSON endpoints accept any content type | `Origin` / `Sec-Fetch-Site` check in the auth middleware; `SameSite=Strict`; require JSON | Fixed |
 | [SEC-11](#sec-11) | Low | `/api/reset` unmounts during a running sync; check-then-act races; actions not validated server-side | Remove or guard `/api/reset`; lock state transitions; action whitelist per diff status | Fixed |
 | [SEC-12](#sec-12) | Low | `data/auth.toml` is world-readable (0644) and written non-atomically | Write 0600 + atomic replace; `data/` 0700; `UMask=0077` | Fixed |
@@ -153,10 +153,11 @@
 ### SEC-09 — Sessions cannot be revoked and live 30 days · Low
 
 - **Where:** `auth/session.py:5-7`, `transport/api_server.py:147-151,293-303`
-- **Status:** Open · **Verified:** PoC (old cookie still accepted after logout)
+- **Status:** Fixed · **Verified:** PoC (old cookie still accepted after logout)
 - **What:** Tokens are stateless and always verified against `REMEMBER_SECONDS` (30 days); `SESSION_SECONDS` is defined but unused, so a login without "Remember me" yields a token that is equally long-lived. Logout only deletes the cookie in the browser. `/logout` is also reachable via GET, so any page can log the operator out with an `<img>` tag.
 - **Impact:** A captured cookie (see SEC-05, SEC-12) stays valid for 30 days or until the password changes.
 - **Solution:** Put a `remember` flag in the token and enforce 24 h when it is not set; on logout rotate `session_secret` (single user → "log out everywhere", which is fine) or track a server-side session id; keep only `POST /logout`.
+- **Fix (2026-11-16):** Tokens now carry a "remember" flag and decide their own lifetime: 24 hours by default, 30 days only when "Remember me" was ticked (tokens issued before this change count as 24-hour ones). Logout rotates the session-signing secret, so every session ends on the server — a copied cookie stops working — and it only does so for a signed-in request, since `/logout` is a public path. `GET /logout` is removed. Verified in Chromium: a cookie captured before logout gets HTTP 401 afterwards. Tests: `tests/test_sessions.py`. **Behaviour change:** logging out on one device signs out all devices, and after this update sessions older than 24 hours without "Remember me" have to sign in once more.
 
 <a id="sec-10"></a>
 ### SEC-10 — CSRF defence is `SameSite=Lax` only · Low
