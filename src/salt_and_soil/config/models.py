@@ -14,6 +14,9 @@ class AppConfig:
 class ServerConfig:
     host: str = "0.0.0.0"
     port: int = 8080
+    # Extra browser origins ("https://salt.example.com") that may send
+    # state-changing requests to the UI. Empty = only the UI's own origin.
+    allowed_origins: list[str] = field(default_factory=list)
 
 
 @dataclass

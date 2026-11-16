@@ -33,7 +33,7 @@
 | [SEC-07](#sec-07) | Medium | Pinned dependencies with known CVEs (pre-auth DoS in form parsing) | Bump `fastapi`/`starlette`, `python-multipart`, `jinja2`, `pytest`; add `pip-audit` | Fixed |
 | [SEC-08](#sec-08) | Low | Login throttle is global (anyone can lock the operator out) + username timing oracle | Per-IP throttle with backoff; dummy hash verify for unknown users | Open |
 | [SEC-09](#sec-09) | Low | Sessions cannot be revoked; valid 30 days regardless of "Remember me"; logout via GET | Enforce 24 h for non-remember tokens; rotate secret on logout; drop `GET /logout` | Open |
-| [SEC-10](#sec-10) | Low | CSRF defence is `SameSite=Lax` only; JSON endpoints accept any content type | `Origin` / `Sec-Fetch-Site` check in the auth middleware; `SameSite=Strict`; require JSON | Open |
+| [SEC-10](#sec-10) | Low | CSRF defence is `SameSite=Lax` only; JSON endpoints accept any content type | `Origin` / `Sec-Fetch-Site` check in the auth middleware; `SameSite=Strict`; require JSON | Fixed |
 | [SEC-11](#sec-11) | Low | `/api/reset` unmounts during a running sync; check-then-act races; actions not validated server-side | Remove or guard `/api/reset`; lock state transitions; action whitelist per diff status | Open |
 | [SEC-12](#sec-12) | Low | `data/auth.toml` is world-readable (0644) and written non-atomically | Write 0600 + atomic replace; `data/` 0700; `UMask=0077` | Fixed |
 | [SEC-13](#sec-13) | Low | No security headers (CSP, framing, nosniff), inline JS, third-party fonts, no Host validation | Header middleware; move JS to `/static`; self-host fonts; optional trusted-host list | Open |
@@ -160,10 +160,11 @@
 ### SEC-10 — CSRF defence is `SameSite=Lax` only · Low
 
 - **Where:** `transport/api_server.py:153-197` and all `POST /api/*` handlers
-- **Status:** Open · **Known** (README) · **Verified:** PoC (`text/plain` body with a foreign `Origin` accepted on `/api/schedule`)
+- **Status:** Fixed · **Known** (README) · **Verified:** PoC (`text/plain` body with a foreign `Origin` accepted on `/api/schedule`)
 - **What:** There is no CSRF token and no `Origin` check, and the JSON handlers call `request.json()` without looking at the content type, so a plain HTML form can deliver a valid body. `SameSite=Lax` stops other *sites*, but not other *origins on the same site*: a different port on the same host, or sibling host names under a private suffix (`cam.home.lan` → `salt.home.lan`).
 - **Impact:** Such an origin can blindly trigger `/api/start`, `/api/reset`, `/api/cancel`, `/api/schedule` and — if it can guess alias and folder names — `/api/execute`.
 - **Solution:** In the auth middleware, reject state-changing methods whose `Origin` (or `Sec-Fetch-Site`) is not same-origin; switch the cookie to `SameSite=Strict`; require `Content-Type: application/json` on JSON endpoints.
+- **Fix (2026-11-16):** The auth middleware rejects every non-GET request that a browser marks as coming from another origin: `Sec-Fetch-Site` when present (HTTPS, localhost), otherwise `Origin` compared with `Host`. This covers `/login`, `/setup` and `/logout` as well. The three JSON endpoints now require `Content-Type: application/json` and a JSON object. New `[server] allowed_origins` setting as an escape hatch for reverse proxies that rewrite `Host`. Verified in Chromium over plain HTTP on a non-localhost name (Origin sent, no `Sec-Fetch-*`): login, schedule, scan, sync, password change and logout all work. Tests: `tests/test_csrf.py`. **Deviation:** the cookie stays `SameSite=Lax` — `Strict` would make every link from another site (a homelab dashboard, a chat message) land on the login page, and the origin check already closes the same-site gap.
 
 <a id="sec-11"></a>
 ### SEC-11 — State-machine gaps: `/api/reset`, races, unvalidated actions · Low

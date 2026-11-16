@@ -11,6 +11,10 @@ log_level = "INFO"            # DEBUG | INFO | WARNING | ERROR
 [server]
 host = "0.0.0.0"
 port = 8080
+# State-changing requests are only accepted from the UI's own origin. If a
+# reverse proxy rewrites the Host header and the UI answers "Cross-origin
+# request rejected", list the address you open in the browser here:
+# allowed_origins = ["https://salt.example.com"]
 
 # Auth
 # On an agent node: the key that incoming requests must carry in X-Api-Key.

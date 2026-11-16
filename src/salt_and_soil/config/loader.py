@@ -53,6 +53,7 @@ def load(path: str | Path | None = None) -> Config:
     server = ServerConfig(
         host = _host(srv_raw.get("host", "0.0.0.0"), "server.host"),
         port = _port(srv_raw.get("port", 8080), "server.port"),
+        allowed_origins = _origins(srv_raw.get("allowed_origins", [])),
     )
 
     md_raw = raw.get("mount_defaults", {})
@@ -172,6 +173,23 @@ def _host(value: object, where: str) -> str:
             f"{where}: invalid value {value!r} (no spaces, no '/', no leading '-')"
         )
     return value
+
+
+def _origins(value: object) -> list[str]:
+    """server.allowed_origins: scheme://host[:port] entries, compared
+    case-insensitively and without a trailing slash."""
+    if not isinstance(value, list):
+        raise ValueError("server.allowed_origins must be a list of origins")
+    out = []
+    for o in value:
+        if not isinstance(o, str) or not o.lower().startswith(("http://", "https://")) \
+                or "/" in o.split("://", 1)[1].rstrip("/"):
+            raise ValueError(
+                f"server.allowed_origins: {o!r} is not an origin "
+                f"(expected e.g. \"https://salt.example.com\")"
+            )
+        out.append(o.rstrip("/").lower())
+    return out
 
 
 def _port(value: object, where: str) -> int:

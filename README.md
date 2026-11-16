@@ -77,7 +77,7 @@ Salt & Soil is a **single-operator tool for a trusted network**, not a multi-ten
 - **The orchestrator web UI has a single user account** (argon2-hashed password, signed session cookie, 5-strikes / 15-minute brute-force throttle). The throttle is in-memory and global — it resets on process restart and does not discriminate per IP.
 - **Session cookies are not marked `secure`.** You can access the UI over plain HTTP on a trusted LAN; put it behind TLS (reverse proxy, Cloudflare Tunnel, …) before exposing it publicly.
 - **Both containers run privileged with root SSH** between them. This is required for NFS mounts and rsync; it is not a hardened setup.
-- **There is no CSRF token.** The SameSite=Lax cookie is the only cross-origin defense.
+- **No CSRF token, but an origin check.** State-changing requests are only accepted from the UI's own origin (`Origin` / `Sec-Fetch-Site` headers), on top of the SameSite=Lax cookie. If a reverse proxy rewrites the `Host` header and the UI answers *Cross-origin request rejected*, list the address you open in the browser under `[server] allowed_origins`.
 
 If your threat model includes hostile actors on your internal network, or you plan to expose this publicly without additional auth in front of it, this tool is — *for now* — not the right fit. The current model is sufficient for the author's personal use; stricter auth (agent tokens, CSRF, `secure` cookies) may land in a future version.
 

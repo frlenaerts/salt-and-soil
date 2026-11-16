@@ -13,9 +13,15 @@ import logging
 import signal
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Collection, Mapping
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, BackgroundTasks, Request, HTTPException, Depends, Header, Form
-from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, RedirectResponse, Response, FileResponse
+from fastapi.responses import (
+    HTMLResponse, StreamingResponse, JSONResponse, RedirectResponse, Response, FileResponse,
+    PlainTextResponse,
+)
+from starlette.datastructures import Headers
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -39,6 +45,51 @@ log = logging.getLogger("salt-and-soil")
 _TMPL_DIR   = Path(__file__).parent.parent / "templates"
 _STATIC_DIR = Path(__file__).parent.parent / "static"
 _running    = True   # set to False in lifespan shutdown so SSE generators exit
+
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def is_cross_origin(headers: Mapping[str, str], allowed_origins: Collection[str] = ()) -> bool:
+    """True if the browser says this request was sent by another origin.
+
+    The session cookie is SameSite=Lax, which keeps other *sites* out but not
+    other origins on the same site (another port on this host, a sibling
+    host name). State-changing requests are therefore also checked here:
+
+      1. Sec-Fetch-Site, when present (browsers send it over HTTPS and to
+         localhost): only 'same-origin' and 'none' (typed URL, bookmark) pass.
+      2. Otherwise Origin: its host[:port] must equal the Host header.
+      3. Neither header: not a browser cross-origin request (curl, scripts,
+         the orchestrator's own tooling) — nothing to judge, so it passes.
+
+    An origin listed in `allowed_origins` always passes; that is the escape
+    hatch for reverse proxies that rewrite the Host header."""
+    origin = headers.get("origin")
+    if origin is not None and origin.rstrip("/").lower() in allowed_origins:
+        return False
+    site = headers.get("sec-fetch-site")
+    if site is not None:
+        return site.strip().lower() not in ("same-origin", "none")
+    if origin is None:
+        return False
+    netloc = urlsplit(origin).netloc.lower()     # 'null' and garbage → ''
+    return not netloc or netloc != headers.get("host", "").strip().lower()
+
+
+async def _json_object(request: Request) -> dict:
+    """Body of a JSON API call. Insists on Content-Type: application/json —
+    which an HTML form cannot send, and a cross-origin script cannot send
+    without a CORS preflight — and on a JSON object as the top-level value."""
+    ctype = request.headers.get("content-type", "").split(";")[0].strip().lower()
+    if ctype != "application/json":
+        raise HTTPException(415, "Content-Type must be application/json")
+    try:
+        body = await request.json()
+    except ValueError:
+        raise HTTPException(400, "Body is not valid JSON")
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Body must be a JSON object")
+    return body
 
 
 def create_app(cfg: Config, runtime) -> FastAPI:
@@ -122,6 +173,7 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
     auth_path     = Path(cfg.app.data_dir) / "auth.toml"
     auth_store    = AuthStore(auth_path)
     login_throttle = LoginThrottle()
+    allowed_origins = frozenset(cfg.server.allowed_origins)
 
     PUBLIC_PATHS = {"/login", "/logout", "/setup", "/favicon.ico"}
 
@@ -162,6 +214,15 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
                 await self.app(scope, receive, send)
                 return
             path = scope["path"]
+            # CSRF: applies to public paths too (login, setup, logout).
+            if scope["method"] not in _SAFE_METHODS and \
+                    is_cross_origin(Headers(scope=scope), allowed_origins):
+                if path.startswith("/api/"):
+                    resp = JSONResponse({"error": "cross-origin request rejected"}, status_code=403)
+                else:
+                    resp = PlainTextResponse("Cross-origin request rejected.", status_code=403)
+                await resp(scope, receive, send)
+                return
             if _is_public(path):
                 await self.app(scope, receive, send)
                 return
@@ -310,7 +371,7 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
 
     @app.post("/api/settings/password")
     async def settings_change_password(request: Request):
-        body = await request.json()
+        body = await _json_object(request)
         current  = str(body.get("current_password", ""))
         new_pw   = str(body.get("new_password", ""))
         confirm  = str(body.get("confirm_password", ""))
@@ -414,7 +475,7 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
     async def execute(request: Request, background_tasks: BackgroundTasks):
         if rt.status != AppStatus.READY:
             raise HTTPException(400, "Scan first")
-        body = await request.json()
+        body = await _json_object(request)
         req  = ExecuteRequest.from_dict(body)
         rt.status = AppStatus.SYNCING
         background_tasks.add_task(rt.run_sync, req.actions)
@@ -448,7 +509,7 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
 
     @app.post("/api/schedule")
     async def post_schedule(request: Request):
-        body = await request.json()
+        body = await _json_object(request)
         try:
             enabled = bool(body.get("enabled", False))
             days    = sorted({int(d) for d in body.get("days", [])})
