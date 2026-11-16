@@ -82,7 +82,14 @@ class AgentAPIClient:
 
     async def list_dirs(self, alias: str) -> ListDirsResponse:
         r = await self._request("GET", "/list", timeout=120, params={"alias": alias})
-        return ListDirsResponse.from_dict(r.json())
+        who = f"[{self.name}] GET /list"
+        try:
+            resp = ListDirsResponse.from_dict(r.json())
+        except ValueError as e:     # includes a body that is not JSON
+            raise AgentError(f"{who}: invalid response — {e}") from e
+        if resp.source_alias != alias:
+            raise AgentError(f"{who}: invalid response — asked for '{alias}', got another source")
+        return resp
 
     async def health(self) -> bool:
         try:

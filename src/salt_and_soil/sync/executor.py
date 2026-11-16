@@ -10,7 +10,7 @@ from typing import AsyncIterator
 from ..state.models import SyncJob
 from ..shared.enums import SyncAction, JobStatus
 from ..shared.clock import utc_now_iso
-from ..shared.paths import human_size
+from ..shared.paths import human_size, is_plain_name
 
 
 @dataclass
@@ -70,6 +70,20 @@ class SyncExecutor:
                 f"(known: {sorted(self.source_map.keys())})"
             )
 
+    def _job_paths(self, job: SyncJob) -> tuple[str, str]:
+        """(local, remote) directory of a job. The folder name must be a
+        single path component, so a job can only ever address a direct child
+        of its source — never the source itself or anything outside it."""
+        if not is_plain_name(job.folder):
+            raise RuntimeError(
+                f"refusing folder name {job.folder!r}: not a plain directory name"
+            )
+        src = self._resolve(job)
+        return (
+            posixpath.join(src.local_full_path, job.folder),
+            posixpath.join(src.remote_full_path, job.folder),
+        )
+
     async def execute(self, job: SyncJob) -> AsyncIterator[str]:
         job.status     = JobStatus.RUNNING
         job.started_at = utc_now_iso()
@@ -96,12 +110,9 @@ class SyncExecutor:
             yield f"ERROR: {e}"
 
     async def _rsync(self, job: SyncJob, direction: str = "push") -> AsyncIterator[str]:
-        src_info = self._resolve(job)
-        local    = posixpath.join(src_info.local_full_path, job.folder) + "/"
-        remote   = (
-            f"{self.remote_user}@{self.remote_host}:"
-            f"{posixpath.join(src_info.remote_full_path, job.folder)}/"
-        )
+        local_dir, remote_dir = self._job_paths(job)
+        local    = local_dir + "/"
+        remote   = f"{self.remote_user}@{self.remote_host}:{remote_dir}/"
         src, dst = (local, remote) if direction == "push" else (remote, local)
         cmd = ["rsync", "-avz", "--progress", "--partial"]
         if self.exclude_file:
@@ -174,8 +185,7 @@ class SyncExecutor:
         return f"{name} — {size} — {speed}"
 
     async def _delete_remote(self, job: SyncJob) -> AsyncIterator[str]:
-        src_info = self._resolve(job)
-        path     = posixpath.join(src_info.remote_full_path, job.folder)
+        _, path  = self._job_paths(job)
         label    = self.remote_name or self.remote_host
         yield f"Deleting on {label}: {path}"
         proc = await asyncio.create_subprocess_exec(
@@ -183,7 +193,7 @@ class SyncExecutor:
             "-i", self.ssh_key_file,
             "-o", "StrictHostKeyChecking=no",
             f"{self.remote_user}@{self.remote_host}",
-            f"rm -rf {shlex.quote(path)}",
+            f"rm -rf -- {shlex.quote(path)}",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )

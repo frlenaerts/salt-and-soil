@@ -26,7 +26,7 @@
 |----|-----|------|------------------|--------|
 | [SEC-01](#sec-01) | High | Agent API is unauthenticated unless a key is configured (fail-open default) | Fail closed: refuse to start without `auth.api_key`; generate one in bootstrap; constant-time compare | Open |
 | [SEC-02](#sec-02) | Medium | XSS in the error banner — agent-controlled text is rendered as HTML | Escape in `showBanner()` / use `textContent` | Fixed |
-| [SEC-03](#sec-03) | Medium | Folder names and mount points from the agent are trusted → path traversal, `rm -rf` of a whole source | Validate names as single path components; containment check before rsync / rm | Open |
+| [SEC-03](#sec-03) | Medium | Folder names and mount points from the agent are trusted → path traversal, `rm -rf` of a whole source | Validate names as single path components; containment check before rsync / rm | Fixed |
 | [SEC-04](#sec-04) | Medium | SSH host-key verification disabled (`StrictHostKeyChecking=no`) | `accept-new` + dedicated `known_hosts`; `BatchMode`, `IdentitiesOnly` | Open |
 | [SEC-05](#sec-05) | Medium | No transport security: UI and agent API over plain HTTP, cookie not `Secure` | TLS option / reverse proxy, `cookie_secure` setting, `https://` agents | Open |
 | [SEC-06](#sec-06) | Medium | First-run `/setup` is open to whoever reaches it first (and reopens if `auth.toml` is missing) | One-time setup token from the journal, or a CLI `create-user` | Open |
@@ -76,7 +76,7 @@
 ### SEC-03 — Folder names and mount points from the agent are trusted · Medium
 
 - **Where:** `transport/dtos.py:33-55`, `roles/orchestrator.py:270-277,338-348`, `sync/executor.py:100-104,176-186`
-- **Status:** Open · **Verified:** PoC
+- **Status:** Fixed · **Verified:** PoC
 - **What:** `/list` entries become diff rows without validation, and `/status` mount points are used as the base of remote paths. Names are later joined into rsync and `rm -rf` paths. In the PoC a test agent returned the names `""`, `".."` and `"../../../../../root/.ssh"`; all three were accepted as `remote_only` rows and produced:
   - `rm -rf <remote source>/` — the whole source (empty name)
   - `rm -rf <remote source>/..` — the whole share
@@ -87,6 +87,7 @@
   2. Validate `/status` mount points: absolute, normalised, inside `mount_root_remote`.
   3. Defence in depth in `SyncExecutor`: before rsync or delete, check that `normpath(join(base, folder))` is strictly inside `base`; use `rm -rf --`.
   4. Add tests for all three cases.
+- **Fix (2026-11-16):** `/list` responses are validated on arrival (`DirEntry.from_dict`): a folder name must be a single path component — non-empty, not `.` or `..`, no `/`, no NUL — and `size_bytes` a non-negative integer; unknown keys are ignored. A bad entry fails the scan with a readable error instead of becoming a row. `/status` mount points must lie below `mount_root_remote` and are only accepted for sources that belong to the reporting agent. `SyncExecutor` re-checks the folder name before every rsync and delete, and delete uses `rm -rf --`. Re-ran the hostile-agent test: the scan is refused and no command is built. Tests: `tests/test_agent_input_validation.py`. **Deviation:** other control characters are not rejected — they are legal in real folder names and the local scanner allows them too. **Behaviour change:** if an agent uses a mount root different from the orchestrator's `mount_root_remote`, scans now stop with an error that says which setting to align.
 
 <a id="sec-04"></a>
 ### SEC-04 — SSH host-key verification disabled · Medium

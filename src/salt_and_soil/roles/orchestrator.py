@@ -270,13 +270,38 @@ class OrchestratorRuntime:
             # Pull mount points from /status so we know where the agent actually mounted
             try:
                 st = await agent.status()
-                for m in st.mounts:
-                    if m.get("alias") in self.sources_by_alias:
-                        remote_mount_points[m["alias"]] = m["mount_point"]
             except Exception as e:
                 log.warning("Could not fetch /status from %s: %s", agent_name, e)
+                continue
+            for m in st.mounts if isinstance(st.mounts, list) else []:
+                alias = m.get("alias") if isinstance(m, dict) else None
+                src   = self.sources_by_alias.get(alias) if isinstance(alias, str) else None
+                if src is None or src.agent != agent_name:
+                    continue    # not a source this agent is responsible for
+                remote_mount_points[alias] = self._checked_remote_mount_point(
+                    agent_name, alias, m.get("mount_point"),
+                )
 
         return remote_mount_points
+
+    def _checked_remote_mount_point(self, agent_name: str, alias: str, value: object) -> str:
+        """Validate a mount point reported by an agent's /status. It becomes
+        the base of rsync and delete paths on the agent host, so it has to be
+        a directory below mount_root_remote — nothing else is accepted."""
+        root = posixpath.normpath(self.cfg.mount_defaults.mount_root_remote)
+        mp   = None
+        if isinstance(value, str) and value.startswith("/") and "\x00" not in value \
+                and ".." not in value.split("/"):
+            mp = posixpath.normpath(value)
+            if mp == root or not mp.startswith(root.rstrip("/") + "/"):
+                mp = None
+        if mp is None:
+            raise RuntimeError(
+                f"[{agent_name}] reported mount point {value!r} for '{alias}', which is not "
+                f"below mount_root_remote ({root}). If the agent uses a different mount "
+                f"root, set [mount_defaults] mount_root_remote on this node to match it."
+            )
+        return mp
 
     async def _do_unmount_all(self) -> None:
         """Release whatever the last _do_mount_all managed to mount. Safe to

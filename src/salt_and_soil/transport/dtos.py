@@ -4,6 +4,13 @@ Data Transfer Objects — plain Python dataclasses, no pydantic required.
 from __future__ import annotations
 from dataclasses import dataclass
 from ..shared.enums import SyncAction
+from ..shared.paths import is_plain_name
+
+
+def _short(value: object) -> str:
+    """repr() capped in length — for quoting untrusted values in error messages."""
+    text = repr(value)
+    return text if len(text) <= 80 else text[:77] + "..."
 
 
 @dataclass
@@ -38,6 +45,21 @@ class DirEntry:
     def to_dict(self) -> dict:
         return {"name": self.name, "size_bytes": self.size_bytes}
 
+    @classmethod
+    def from_dict(cls, d: object) -> "DirEntry":
+        """Parse one entry received from an agent. The name later becomes a
+        path component in rsync and delete commands, so anything that is not
+        a plain directory name is rejected (ValueError). Unknown keys are
+        ignored."""
+        if not isinstance(d, dict):
+            raise ValueError("directory entry is not an object")
+        name, size = d.get("name"), d.get("size_bytes")
+        if not is_plain_name(name):
+            raise ValueError(f"folder name {_short(name)} is not a plain directory name")
+        if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+            raise ValueError(f"size of folder {_short(name)} is not a non-negative integer")
+        return cls(name=name, size_bytes=size)
+
 
 @dataclass
 class ListDirsResponse:
@@ -48,11 +70,16 @@ class ListDirsResponse:
         return {"source_alias": self.source_alias, "dirs": [d.to_dict() for d in self.dirs]}
 
     @classmethod
-    def from_dict(cls, d: dict) -> "ListDirsResponse":
-        return cls(
-            source_alias = d["source_alias"],
-            dirs         = [DirEntry(**e) for e in d.get("dirs", [])],
-        )
+    def from_dict(cls, d: object) -> "ListDirsResponse":
+        """Parse an agent /list response; raises ValueError if it is malformed."""
+        if not isinstance(d, dict):
+            raise ValueError("response is not an object")
+        alias, dirs = d.get("source_alias"), d.get("dirs", [])
+        if not isinstance(alias, str):
+            raise ValueError("'source_alias' is missing")
+        if not isinstance(dirs, list):
+            raise ValueError("'dirs' is not a list")
+        return cls(source_alias=alias, dirs=[DirEntry.from_dict(e) for e in dirs])
 
 
 @dataclass
