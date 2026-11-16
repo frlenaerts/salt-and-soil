@@ -1155,10 +1155,12 @@ function onDone() {
   showBanner('done', '✓ Sync complete — storage can go to sleep now 🛌');
 }
 
+// `msg` can carry text from outside (agent error details, mount output), so it
+// must never be inserted as HTML.
 function showBanner(type, msg) {
   document.getElementById('banner-area').innerHTML =
     `<div class="banner banner-${type}">
-       <span class="banner-msg">${msg}</span>
+       <span class="banner-msg">${esc(msg)}</span>
        <button class="banner-close" onclick="this.parentElement.remove()" aria-label="Dismiss">✕</button>
      </div>`;
 }

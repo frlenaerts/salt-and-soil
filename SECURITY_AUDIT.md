@@ -25,7 +25,7 @@
 | ID | Sev | Item | Solution (short) | Status |
 |----|-----|------|------------------|--------|
 | [SEC-01](#sec-01) | High | Agent API is unauthenticated unless a key is configured (fail-open default) | Fail closed: refuse to start without `auth.api_key`; generate one in bootstrap; constant-time compare | Open |
-| [SEC-02](#sec-02) | Medium | XSS in the error banner — agent-controlled text is rendered as HTML | Escape in `showBanner()` / use `textContent` | Open |
+| [SEC-02](#sec-02) | Medium | XSS in the error banner — agent-controlled text is rendered as HTML | Escape in `showBanner()` / use `textContent` | Fixed |
 | [SEC-03](#sec-03) | Medium | Folder names and mount points from the agent are trusted → path traversal, `rm -rf` of a whole source | Validate names as single path components; containment check before rsync / rm | Open |
 | [SEC-04](#sec-04) | Medium | SSH host-key verification disabled (`StrictHostKeyChecking=no`) | `accept-new` + dedicated `known_hosts`; `BatchMode`, `IdentitiesOnly` | Open |
 | [SEC-05](#sec-05) | Medium | No transport security: UI and agent API over plain HTTP, cookie not `Secure` | TLS option / reverse proxy, `cookie_secure` setting, `https://` agents | Open |
@@ -66,10 +66,11 @@
 ### SEC-02 — XSS in the error banner · Medium
 
 - **Where:** `src/salt_and_soil/templates/index.html:1158-1164` (`showBanner`), called at `:746`, `:1129`, `:1206`; sources: `transport/api_client.py:56-59,97-103`, `roles/orchestrator.py:261`
-- **Status:** Open · **Verified:** PoC (script executed in Chromium in the logged-in session)
+- **Status:** Fixed · **Verified:** PoC (script executed in Chromium in the logged-in session)
 - **What:** `showBanner()` inserts `msg` with `innerHTML`. The message is the runtime's `error` string, which can contain text the agent controls: the `detail` of any agent HTTP error and the agent's mount error output. Everything else in the UI is escaped (`esc()`, `textContent`); this is the one sink that is not.
 - **Impact:** A compromised agent — or anyone who can tamper with the plain-HTTP link to it (SEC-05) — gets JavaScript running in the operator's authenticated session. That script can drive the whole API: start scans, change the schedule, execute sync and delete actions. The password cannot be changed this way (the current password is required).
 - **Solution:** Escape in `showBanner()` (`${esc(msg)}`) or build the banner with `textContent`. One-line fix. A Content-Security-Policy (SEC-13) is the second line of defence.
+- **Fix (2026-11-16):** `showBanner()` now escapes its message with `esc()`. Re-ran the hostile-agent test in Chromium: the payload is displayed as text and no longer executes. The CSP second line of defence remains open under SEC-13.
 
 <a id="sec-03"></a>
 ### SEC-03 — Folder names and mount points from the agent are trusted · Medium
