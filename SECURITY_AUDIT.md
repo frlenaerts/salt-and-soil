@@ -7,6 +7,7 @@
 | **Scope** | Everything in the repo: `src/`, `scripts/`, `config/`, templates, dependencies, docs |
 | **Method** | Manual code review · dependency scan (`pip-audit`) · proof-of-concept runs against a local orchestrator and a hostile test agent (NFS mounts stubbed) · git-history secret scan |
 | **Result** | 19 items — 1 High · 6 Medium · 10 Low · 2 Info |
+| **Progress** | 10 fixed · 9 open (last update 2026-11-16) |
 
 ## How to read this file
 
@@ -25,23 +26,23 @@
 | ID | Sev | Item | Solution (short) | Status |
 |----|-----|------|------------------|--------|
 | [SEC-01](#sec-01) | High | Agent API is unauthenticated unless a key is configured (fail-open default) | Fail closed: refuse to start without `auth.api_key`; generate one in bootstrap; constant-time compare | Open |
-| [SEC-02](#sec-02) | Medium | XSS in the error banner — agent-controlled text is rendered as HTML | Escape in `showBanner()` / use `textContent` | Fixed |
-| [SEC-03](#sec-03) | Medium | Folder names and mount points from the agent are trusted → path traversal, `rm -rf` of a whole source | Validate names as single path components; containment check before rsync / rm | Fixed |
+| [SEC-02](#sec-02) | Medium | XSS in the error banner — agent-controlled text is rendered as HTML | Escape in `showBanner()` / use `textContent` | Fixed (`39f9cd6`) |
+| [SEC-03](#sec-03) | Medium | Folder names and mount points from the agent are trusted → path traversal, `rm -rf` of a whole source | Validate names as single path components; containment check before rsync / rm | Fixed (`0b55e08`) |
 | [SEC-04](#sec-04) | Medium | SSH host-key verification disabled (`StrictHostKeyChecking=no`) | `accept-new` + dedicated `known_hosts`; `BatchMode`, `IdentitiesOnly` | Open |
 | [SEC-05](#sec-05) | Medium | No transport security: UI and agent API over plain HTTP, cookie not `Secure` | TLS option / reverse proxy, `cookie_secure` setting, `https://` agents | Open |
-| [SEC-06](#sec-06) | Medium | First-run `/setup` is open to whoever reaches it first (and reopens if `auth.toml` is missing) | One-time setup token from the journal, or a CLI `create-user` | Fixed |
-| [SEC-07](#sec-07) | Medium | Pinned dependencies with known CVEs (pre-auth DoS in form parsing) | Bump `fastapi`/`starlette`, `python-multipart`, `jinja2`, `pytest`; add `pip-audit` | Fixed |
-| [SEC-08](#sec-08) | Low | Login throttle is global (anyone can lock the operator out) + username timing oracle | Per-IP throttle with backoff; dummy hash verify for unknown users | Fixed |
-| [SEC-09](#sec-09) | Low | Sessions cannot be revoked; valid 30 days regardless of "Remember me"; logout via GET | Enforce 24 h for non-remember tokens; rotate secret on logout; drop `GET /logout` | Fixed |
-| [SEC-10](#sec-10) | Low | CSRF defence is `SameSite=Lax` only; JSON endpoints accept any content type | `Origin` / `Sec-Fetch-Site` check in the auth middleware; `SameSite=Strict`; require JSON | Fixed |
-| [SEC-11](#sec-11) | Low | `/api/reset` unmounts during a running sync; check-then-act races; actions not validated server-side | Remove or guard `/api/reset`; lock state transitions; action whitelist per diff status | Fixed |
-| [SEC-12](#sec-12) | Low | `data/auth.toml` is world-readable (0644) and written non-atomically | Write 0600 + atomic replace; `data/` 0700; `UMask=0077` | Fixed |
+| [SEC-06](#sec-06) | Medium | First-run `/setup` is open to whoever reaches it first (and reopens if `auth.toml` is missing) | One-time setup token from the journal, or a CLI `create-user` | Fixed (`b490ebe`) |
+| [SEC-07](#sec-07) | Medium | Pinned dependencies with known CVEs (pre-auth DoS in form parsing) | Bump `fastapi`/`starlette`, `python-multipart`, `jinja2`, `pytest`; add `pip-audit` | Fixed (`a5e4885`) |
+| [SEC-08](#sec-08) | Low | Login throttle is global (anyone can lock the operator out) + username timing oracle | Per-IP throttle with backoff; dummy hash verify for unknown users | Fixed (`fa38955`) |
+| [SEC-09](#sec-09) | Low | Sessions cannot be revoked; valid 30 days regardless of "Remember me"; logout via GET | Enforce 24 h for non-remember tokens; rotate secret on logout; drop `GET /logout` | Fixed (`9474a51`) |
+| [SEC-10](#sec-10) | Low | CSRF defence is `SameSite=Lax` only; JSON endpoints accept any content type | `Origin` / `Sec-Fetch-Site` check in the auth middleware; `SameSite=Strict`; require JSON | Fixed (`26f3a96`) |
+| [SEC-11](#sec-11) | Low | `/api/reset` unmounts during a running sync; check-then-act races; actions not validated server-side | Remove or guard `/api/reset`; lock state transitions; action whitelist per diff status | Fixed (`656a5d9`) |
+| [SEC-12](#sec-12) | Low | `data/auth.toml` is world-readable (0644) and written non-atomically | Write 0600 + atomic replace; `data/` 0700; `UMask=0077` | Fixed (`e39b433`) |
 | [SEC-13](#sec-13) | Low | No security headers (CSP, framing, nosniff), inline JS, third-party fonts, no Host validation | Header middleware; move JS to `/static`; self-host fonts; optional trusted-host list | Open |
 | [SEC-14](#sec-14) | Low | Orchestrator key is an unrestricted root shell on the agent; README leaves password SSH login on | Restrict the key (`rrsync`), move delete to an agent endpoint, tighten sshd docs | Open |
 | [SEC-15](#sec-15) | Low | rsync / NFS hardening: no `--protect-args`; mounts allow suid/dev/exec | Add `-s`; add `nosuid,nodev,noexec` to default `nfs_options` | Open |
 | [SEC-16](#sec-16) | Low | Runs as root with no service sandboxing; binds `0.0.0.0`; `test-mount` serves an unauthenticated UI on all interfaces | Bind narrowly; harden the systemd unit; `test-mount` → `127.0.0.1` | Open |
 | [SEC-17](#sec-17) | Low | Scheduled runs push changes unattended, while the README says sync is never automatic | Add a `schedule.auto_sync` switch (default off) or correct the docs | Open |
-| [SEC-18](#sec-18) | Info | Config validation gaps: absolute `local_path` / `remote_path` bypass the `..` check | Reject absolute paths; restrict alias charset | Fixed |
+| [SEC-18](#sec-18) | Info | Config validation gaps: absolute `local_path` / `remote_path` bypass the `..` check | Reject absolute paths; restrict alias charset | Fixed (`c4db052`) |
 | [SEC-19](#sec-19) | Info | Supply chain: `curl \| tar`, `curl \| sh`, no hashes, unpinned transitive deps | Publish checksums; hash-pinned lock file | Open |
 
 ---
@@ -66,7 +67,7 @@
 ### SEC-02 — XSS in the error banner · Medium
 
 - **Where:** `src/salt_and_soil/templates/index.html:1158-1164` (`showBanner`), called at `:746`, `:1129`, `:1206`; sources: `transport/api_client.py:56-59,97-103`, `roles/orchestrator.py:261`
-- **Status:** Fixed · **Verified:** PoC (script executed in Chromium in the logged-in session)
+- **Status:** Fixed (`39f9cd6`) · **Verified:** PoC (script executed in Chromium in the logged-in session)
 - **What:** `showBanner()` inserts `msg` with `innerHTML`. The message is the runtime's `error` string, which can contain text the agent controls: the `detail` of any agent HTTP error and the agent's mount error output. Everything else in the UI is escaped (`esc()`, `textContent`); this is the one sink that is not.
 - **Impact:** A compromised agent — or anyone who can tamper with the plain-HTTP link to it (SEC-05) — gets JavaScript running in the operator's authenticated session. That script can drive the whole API: start scans, change the schedule, execute sync and delete actions. The password cannot be changed this way (the current password is required).
 - **Solution:** Escape in `showBanner()` (`${esc(msg)}`) or build the banner with `textContent`. One-line fix. A Content-Security-Policy (SEC-13) is the second line of defence.
@@ -76,7 +77,7 @@
 ### SEC-03 — Folder names and mount points from the agent are trusted · Medium
 
 - **Where:** `transport/dtos.py:33-55`, `roles/orchestrator.py:270-277,338-348`, `sync/executor.py:100-104,176-186`
-- **Status:** Fixed · **Verified:** PoC
+- **Status:** Fixed (`0b55e08`) · **Verified:** PoC
 - **What:** `/list` entries become diff rows without validation, and `/status` mount points are used as the base of remote paths. Names are later joined into rsync and `rm -rf` paths. In the PoC a test agent returned the names `""`, `".."` and `"../../../../../root/.ssh"`; all three were accepted as `remote_only` rows and produced:
   - `rm -rf <remote source>/` — the whole source (empty name)
   - `rm -rf <remote source>/..` — the whole share
@@ -114,7 +115,7 @@
 ### SEC-06 — First-run `/setup` is open to whoever reaches it first · Medium
 
 - **Where:** `transport/api_server.py:200-235`
-- **Status:** Fixed · **Verified:** PoC
+- **Status:** Fixed (`b490ebe`) · **Verified:** PoC
 - **What:** Until `data/auth.toml` exists, anyone who can reach the port can create the single account and is logged in immediately. The check is "file exists", so the window reopens whenever that file is missing — a fresh install started by `install-service.sh`, a restore without `data/`, a moved `data_dir`.
 - **Impact:** Full control of the orchestrator (sync and delete actions on both NAS devices) for whoever wins the race; with a lost `auth.toml` there is no race at all.
 - **Solution:** Generate a one-time setup token at startup when no account exists, log it to the journal, and require it on the setup form. Alternatively create the account from the CLI (`python -m salt_and_soil create-user`) and remove the web setup. Cheap extra: only accept `/setup` from loopback unless a token is presented.
@@ -124,7 +125,7 @@
 ### SEC-07 — Pinned dependencies with known CVEs · Medium
 
 - **Where:** `requirements.txt`
-- **Status:** Fixed · **Verified:** Scan (`pip-audit`, 2026-11-16)
+- **Status:** Fixed (`a5e4885`) · **Verified:** Scan (`pip-audit`, 2026-11-16)
 
 | Package (pinned) | Advisories | Relevant here? | Fixed in |
 |---|---|---|---|
@@ -143,7 +144,7 @@
 ### SEC-08 — Global login throttle and username timing oracle · Low
 
 - **Where:** `auth/throttle.py`, `transport/api_server.py:253-291`
-- **Status:** Fixed · **Known** (README, the global part) · **Verified:** PoC
+- **Status:** Fixed (`fa38955`) · **Known** (README, the global part) · **Verified:** PoC
 - **What:** The throttle is one global counter: five wrong attempts from *anyone* lock *everyone* out for 15 minutes; repeating that every 15 minutes keeps the operator out permanently. Separately, the username is compared before the password hash is verified, so an unknown username answers in ~7 ms and the valid one in ~59 ms (measured).
 - **Impact:** Cheap denial of service against the UI; username disclosure. Password brute force itself is well contained (≤ 480 guesses per day against argon2).
 - **Solution:** Throttle per client IP with exponential backoff and keep only a generous global ceiling; always run a hash verification (against a dummy hash for unknown users); cap the accepted password length (e.g. 1024).
@@ -153,7 +154,7 @@
 ### SEC-09 — Sessions cannot be revoked and live 30 days · Low
 
 - **Where:** `auth/session.py:5-7`, `transport/api_server.py:147-151,293-303`
-- **Status:** Fixed · **Verified:** PoC (old cookie still accepted after logout)
+- **Status:** Fixed (`9474a51`) · **Verified:** PoC (old cookie still accepted after logout)
 - **What:** Tokens are stateless and always verified against `REMEMBER_SECONDS` (30 days); `SESSION_SECONDS` is defined but unused, so a login without "Remember me" yields a token that is equally long-lived. Logout only deletes the cookie in the browser. `/logout` is also reachable via GET, so any page can log the operator out with an `<img>` tag.
 - **Impact:** A captured cookie (see SEC-05, SEC-12) stays valid for 30 days or until the password changes.
 - **Solution:** Put a `remember` flag in the token and enforce 24 h when it is not set; on logout rotate `session_secret` (single user → "log out everywhere", which is fine) or track a server-side session id; keep only `POST /logout`.
@@ -163,7 +164,7 @@
 ### SEC-10 — CSRF defence is `SameSite=Lax` only · Low
 
 - **Where:** `transport/api_server.py:153-197` and all `POST /api/*` handlers
-- **Status:** Fixed · **Known** (README) · **Verified:** PoC (`text/plain` body with a foreign `Origin` accepted on `/api/schedule`)
+- **Status:** Fixed (`26f3a96`) · **Known** (README) · **Verified:** PoC (`text/plain` body with a foreign `Origin` accepted on `/api/schedule`)
 - **What:** There is no CSRF token and no `Origin` check, and the JSON handlers call `request.json()` without looking at the content type, so a plain HTML form can deliver a valid body. `SameSite=Lax` stops other *sites*, but not other *origins on the same site*: a different port on the same host, or sibling host names under a private suffix (`cam.home.lan` → `salt.home.lan`).
 - **Impact:** Such an origin can blindly trigger `/api/start`, `/api/reset`, `/api/cancel`, `/api/schedule` and — if it can guess alias and folder names — `/api/execute`.
 - **Solution:** In the auth middleware, reject state-changing methods whose `Origin` (or `Sec-Fetch-Site`) is not same-origin; switch the cookie to `SameSite=Strict`; require `Content-Type: application/json` on JSON endpoints.
@@ -173,7 +174,7 @@
 ### SEC-11 — State-machine gaps: `/api/reset`, races, unvalidated actions · Low
 
 - **Where:** `transport/api_server.py:357-363,414-428`, `roles/orchestrator.py:399-412,492-502`
-- **Status:** Fixed · **Verified:** Code
+- **Status:** Fixed (`656a5d9`) · **Verified:** Code
 - **What:**
   - `/api/reset` has no status check and is not used by the UI. Called during a sync it lazily unmounts both sides under the running rsync and sets the status to `idle` while the job continues.
   - `/api/execute` awaits the request body between checking `READY` and setting `SYNCING`; `/api/start` only changes status once the background task runs. Two quick requests can start two concurrent runs.
@@ -186,7 +187,7 @@
 ### SEC-12 — Secrets on disk are world-readable · Low
 
 - **Where:** `auth/store.py:46-56`; also `state/json_store.py:109`, `schedule/store.py:36`, `config/config.toml` (created by `bootstrap.sh:60-62`)
-- **Status:** Fixed · **Verified:** PoC (`data/auth.toml` created with mode `0644`)
+- **Status:** Fixed (`e39b433`) · **Verified:** PoC (`data/auth.toml` created with mode `0644`)
 - **What:** `auth.toml` holds the argon2 hash *and* the session-signing secret and is written with `Path.write_text()`, i.e. default umask. `config.toml` holds the agent API key and is a plain `cp`. Writes are not atomic, so a crash mid-write can corrupt the file and lock the operator out.
 - **Impact:** Any local user on the host can read the signing secret and mint a valid admin cookie. Low on a single-purpose container, real on a shared host.
 - **Solution:** Write through a temp file opened with mode `0600` and `os.replace()` it; create `data/` with `0700`; `chmod 600 config/config.toml` in bootstrap; set `UMask=0077` in the systemd unit.
@@ -249,7 +250,7 @@
 ### SEC-18 — Config validation gaps · Info
 
 - **Where:** `config/loader.py:165-177`
-- **Status:** Fixed · **Verified:** PoC (`local_path = "/etc"` resolves to `/etc`)
+- **Status:** Fixed (`c4db052`) · **Verified:** PoC (`local_path = "/etc"` resolves to `/etc`)
 - **What:** The loader rejects `..` in `local_path` / `remote_path`, but an absolute path passes and replaces the mount point entirely in `posixpath.join()`. Aliases accept any characters. The config file is root-owned, so this is a guard-rail issue rather than an attack path.
 - **Solution:** Reject absolute paths and normalise; restrict aliases to a conservative character set; validate `host` / `port` values.
 - **Fix (2026-11-16):** The loader now rejects absolute `local_path` / `remote_path` (in addition to `..`) and normalises both (`videos/` → `videos`, `.` → share root). Host-like values (`server.host`, agent `host` / `ssh_host` / `ssh_user`, source `local_host`) may not start with `-` or contain spaces, `/` or control characters, since they become arguments of ssh, ping and mount. Ports must be 1–65535. Share paths may not contain control characters. Tests added to `tests/test_config.py`. **Deviation:** aliases are only limited to 64 characters without control characters — a stricter character set would reject legitimate aliases such as `TV Series` or `Foto's & Films`, and aliases are escaped everywhere they are used.
@@ -272,18 +273,21 @@ Checked and found sound — worth keeping this way:
 - **No shell injection:** every subprocess uses an argument list (`create_subprocess_exec`), never `shell=True`; the one remote shell command quotes its path with `shlex.quote`.
 - **Browser cannot inject paths:** `/api/execute` only matches posted actions against server-side diffs.
 - **Auth middleware is default-deny:** exact-match allow-list of public paths; the `/static` mount cannot be used to reach API routes.
-- **Output encoding:** Jinja2 autoescape is on; folder names and aliases go through `esc()`; log lines use `textContent`. SEC-02 is the single exception.
+- **Output encoding:** Jinja2 autoescape is on; folder names and aliases go through `esc()`; log lines use `textContent`. SEC-02 was the single exception and is fixed.
 - **No CORS headers:** other origins cannot read API responses.
 - **Symlinks** at the top level are skipped by both scanners.
 - **Repo hygiene:** `config.toml`, `data/` and `.env` are git-ignored; no keys, passwords or tokens in any of the 62 commits.
 
 ## Suggested order of work
 
-1. **Quick wins, no behaviour change:** SEC-02 (one line), SEC-03 (validation + tests), SEC-12 (file modes), SEC-11 (guard `/api/reset`), SEC-15 (`-s`, mount flags), SEC-07 (version bumps).
-2. **Auth hardening, small behaviour changes:** SEC-01 (fail-closed agent key), SEC-04 (host keys), SEC-06 (setup token), SEC-08, SEC-09, SEC-10.
-3. **Structural:** SEC-05 (TLS), SEC-13 (CSP needs the JS moved out of the template), SEC-14 (no root shell), SEC-16, SEC-17.
+Done on 2026-11-16: SEC-02, 03, 06, 07, 08, 09, 10, 11, 12 and 18. With SEC-02 and SEC-03 fixed, the agent-related findings no longer depend on trusting the agent or the network path.
 
-After step 1 the remaining agent-related findings (SEC-02, SEC-03) no longer depend on trusting the agent or the network path.
+What remains, in suggested order:
+
+1. **SEC-01** — fail-closed agent key. The only High; needs the key set on both nodes before the update.
+2. **SEC-04** and **SEC-15** — SSH host keys, `rsync -s`, mount flags. Small code changes that have to be tried against the real NAS pair.
+3. **SEC-17** — decide whether scheduled runs may sync unattended, then align code or README.
+4. **SEC-05**, **SEC-13**, **SEC-14**, **SEC-16**, **SEC-19** — structural: TLS, CSP (needs the JavaScript moved out of the template), no root shell on the agent, service hardening, release checksums.
 
 ## Not covered
 
