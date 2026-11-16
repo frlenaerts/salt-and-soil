@@ -130,6 +130,6 @@ State is persisted to `./data/state/state.json`; scan snapshots under `./data/st
 - External binaries required on the host: `mount`, `umount`, `mountpoint`, `rsync`, `du` — this is a Linux-only tool.
 - SSE endpoint `/api/stream` streams log lines to the HTML UI in real time.
 - Python 3.10+ required; uses `tomllib` (stdlib) or falls back to `tomli`.
-- First browser visit redirects to `/setup` to create the single orchestrator user; subsequent visits require login at `/login`.
+- First browser visit redirects to `/setup` to create the single orchestrator user; subsequent visits require login at `/login`. `/setup` requires a one-time token that is logged at startup while no account exists (`auth/setup_token.py`).
 - Auth state (username, argon2 hash, session-signing secret) is stored in `./data/auth.toml`.
 - Auth middleware is pure-ASGI (not `BaseHTTPMiddleware`) to avoid breaking SSE streams on shutdown.

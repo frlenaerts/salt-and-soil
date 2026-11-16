@@ -5,8 +5,15 @@
 {% if error %}<div class="error">{{ error }}</div>{% endif %}
 <form method="post" action="/setup" autocomplete="off">
   <label>
+    <span class="lbl">Setup token</span>
+    <input type="text" name="token" required autofocus autocomplete="off" spellcheck="false"
+           autocapitalize="characters" placeholder="XXXX-XXXX-XXXX-XXXX" value="{{ token or '' }}">
+    <span class="hint">Printed in the service log:
+      <code>journalctl -u salt-and-soil | grep token</code></span>
+  </label>
+  <label>
     <span class="lbl">Username</span>
-    <input type="text" name="username" required autofocus value="{{ username or '' }}">
+    <input type="text" name="username" required value="{{ username or '' }}">
   </label>
   <label>
     <span class="lbl">Password</span>

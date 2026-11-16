@@ -29,7 +29,7 @@ import math
 
 from .. import __version__
 from ..auth import (
-    AuthStore, LoginThrottle, hash_password, verify_password,
+    AuthStore, LoginThrottle, SetupToken, hash_password, verify_password,
     make_session_token, verify_session_token,
 )
 from ..auth.password import MIN_PASSWORD_LENGTH
@@ -175,6 +175,12 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
     login_throttle = LoginThrottle()
     allowed_origins = frozenset(cfg.server.allowed_origins)
 
+    # While there is no account, creating one requires a token from the log.
+    setup_token = SetupToken()
+    app.state.setup_token = setup_token
+    if not auth_store.exists():
+        setup_token.current()       # generate + log at startup
+
     PUBLIC_PATHS = {"/login", "/logout", "/setup", "/favicon.ico"}
 
     def _is_public(path: str) -> bool:
@@ -262,8 +268,9 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
     async def setup_get(request: Request):
         if auth_store.exists():
             return RedirectResponse("/login", status_code=303)
+        setup_token.current()       # e.g. auth.toml was removed while running
         return templates.TemplateResponse(request, "setup.html", {
-            "title": "Setup", "error": None, "username": "",
+            "title": "Setup", "error": None, "username": "", "token": "",
         })
 
     @app.post("/setup", response_class=HTMLResponse)
@@ -272,13 +279,17 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
         username: str  = Form(...),
         password: str  = Form(...),
         password2: str = Form(...),
+        token: str     = Form(default=""),
     ):
         if auth_store.exists():
             return RedirectResponse("/login", status_code=303)
 
         uname = username.strip()
         err: str | None = None
-        if not uname:
+        if not setup_token.matches(token):
+            setup_token.current()   # make sure there is one to find in the log
+            err = "Invalid setup token — it is printed in the service log (see below)."
+        elif not uname:
             err = "Username is required."
         elif len(password) < MIN_PASSWORD_LENGTH:
             err = f"Password must be at least {MIN_PASSWORD_LENGTH} characters."
@@ -287,10 +298,11 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
 
         if err:
             return templates.TemplateResponse(request, "setup.html", {
-                "title": "Setup", "error": err, "username": uname,
+                "title": "Setup", "error": err, "username": uname, "token": token,
             }, status_code=400)
 
         auth_store.create(uname, password)
+        setup_token.clear()
         resp = RedirectResponse("/", status_code=303)
         _issue_session_cookie(resp, uname, remember=False)
         return resp

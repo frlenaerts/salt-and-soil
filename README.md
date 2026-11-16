@@ -363,11 +363,19 @@ Open the web UI at `http://<container-ip>:<port>` (default port 8080, configurab
 
 ### First-run setup
 
-On first visit the orchestrator redirects to `/setup` to create the single user account (username + password, minimum 8 characters). After that, access to the UI and `/api/*` requires a signed session cookie issued by `/login`. The "Remember me" checkbox extends the cookie lifetime to 30 days.
+On first visit the orchestrator redirects to `/setup` to create the single user account (username + password, minimum 8 characters).
+
+Creating the account requires a one-time **setup token**, so that only someone with access to the host can claim a fresh install. The service writes the token to its log whenever it starts without an account:
+
+```bash
+journalctl -u salt-and-soil | grep token
+```
+
+After that, access to the UI and `/api/*` requires a signed session cookie issued by `/login`. The "Remember me" checkbox extends the cookie lifetime to 30 days.
 
 Passwords are hashed with **argon2** and the session-signing secret is rotated on every password change. Repeated failed logins are throttled: **5 failures** lock new attempts for **15 minutes**.
 
-Auth state lives in `./data/auth.toml` — delete that file to start over.
+Auth state lives in `./data/auth.toml` — delete that file to start over (a new setup token is then written to the log).
 
 ---
 

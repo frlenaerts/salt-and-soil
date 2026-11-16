@@ -29,7 +29,7 @@
 | [SEC-03](#sec-03) | Medium | Folder names and mount points from the agent are trusted → path traversal, `rm -rf` of a whole source | Validate names as single path components; containment check before rsync / rm | Fixed |
 | [SEC-04](#sec-04) | Medium | SSH host-key verification disabled (`StrictHostKeyChecking=no`) | `accept-new` + dedicated `known_hosts`; `BatchMode`, `IdentitiesOnly` | Open |
 | [SEC-05](#sec-05) | Medium | No transport security: UI and agent API over plain HTTP, cookie not `Secure` | TLS option / reverse proxy, `cookie_secure` setting, `https://` agents | Open |
-| [SEC-06](#sec-06) | Medium | First-run `/setup` is open to whoever reaches it first (and reopens if `auth.toml` is missing) | One-time setup token from the journal, or a CLI `create-user` | Open |
+| [SEC-06](#sec-06) | Medium | First-run `/setup` is open to whoever reaches it first (and reopens if `auth.toml` is missing) | One-time setup token from the journal, or a CLI `create-user` | Fixed |
 | [SEC-07](#sec-07) | Medium | Pinned dependencies with known CVEs (pre-auth DoS in form parsing) | Bump `fastapi`/`starlette`, `python-multipart`, `jinja2`, `pytest`; add `pip-audit` | Fixed |
 | [SEC-08](#sec-08) | Low | Login throttle is global (anyone can lock the operator out) + username timing oracle | Per-IP throttle with backoff; dummy hash verify for unknown users | Open |
 | [SEC-09](#sec-09) | Low | Sessions cannot be revoked; valid 30 days regardless of "Remember me"; logout via GET | Enforce 24 h for non-remember tokens; rotate secret on logout; drop `GET /logout` | Open |
@@ -114,10 +114,11 @@
 ### SEC-06 — First-run `/setup` is open to whoever reaches it first · Medium
 
 - **Where:** `transport/api_server.py:200-235`
-- **Status:** Open · **Verified:** PoC
+- **Status:** Fixed · **Verified:** PoC
 - **What:** Until `data/auth.toml` exists, anyone who can reach the port can create the single account and is logged in immediately. The check is "file exists", so the window reopens whenever that file is missing — a fresh install started by `install-service.sh`, a restore without `data/`, a moved `data_dir`.
 - **Impact:** Full control of the orchestrator (sync and delete actions on both NAS devices) for whoever wins the race; with a lost `auth.toml` there is no race at all.
 - **Solution:** Generate a one-time setup token at startup when no account exists, log it to the journal, and require it on the setup form. Alternatively create the account from the CLI (`python -m salt_and_soil create-user`) and remove the web setup. Cheap extra: only accept `/setup` from loopback unless a token is presented.
+- **Fix (2026-11-16):** Creating the account now requires a one-time setup token (`auth/setup_token.py`). It is generated in memory whenever the app finds no account — at startup, or when `/setup` is opened after `auth.toml` was removed — written to the service log, and discarded once the account exists. The setup form has a token field with a hint where to find it (`journalctl -u salt-and-soil | grep token`); the comparison is constant-time and ignores case, dashes and spaces so the token can be typed by hand. Verified end to end in Chromium, and with the real `serve` command that the token reaches the log exactly once. The auth pages now scroll on short screens instead of clipping the longer form. Tests: `tests/test_setup_token.py`. Existing installs are unaffected: no token is issued while an account exists.
 
 <a id="sec-07"></a>
 ### SEC-07 — Pinned dependencies with known CVEs · Medium

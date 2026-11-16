@@ -73,8 +73,10 @@ def orch(tmp_path):
 @pytest.fixture
 def orch_user(tmp_path):
     """Orchestrator with an existing account; `.login()` returns a signed-in client."""
+    # The account must exist before the app starts — that is what an
+    # established install looks like (no setup token is issued).
+    AuthStore(tmp_path / "data" / "auth.toml").create(TEST_USER, TEST_PASSWORD)
     o = make_orchestrator(tmp_path)
-    AuthStore(o.auth_file).create(TEST_USER, TEST_PASSWORD)
 
     def login(remember: bool = False) -> TestClient:
         c = o.client()
