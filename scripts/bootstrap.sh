@@ -54,6 +54,8 @@ mkdir -p "$APP_DIR/data/state/snapshots" \
          "$APP_DIR/data/cache" \
          "$APP_DIR/data/logs" \
          "$APP_DIR/data/exports"
+# Holds the login hash, the session secret and scan state — owner only.
+chmod 700 "$APP_DIR/data"
 echo "✓ Data directories created"
 
 # ── Config (only if not present) ──────────────────────────────────────────────
@@ -63,6 +65,8 @@ if [ ! -f "$APP_DIR/config/config.toml" ]; then
 else
     echo "  config/config.toml already exists — not overwritten"
 fi
+# The config holds the agent API key — keep it private.
+chmod 600 "$APP_DIR/config/config.toml"
 
 # ── SSH key (orchestrator only) ───────────────────────────────────────────────
 if [ "$ROLE" = "orchestrator" ] && [ ! -f "$HOME/.ssh/saltsoil_key" ]; then

@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ..scanner.models import ScanSnapshot, ScanEntry
-from ..shared.paths import ensure_dir
+from ..shared.paths import ensure_dir, write_private
 
 
 def _safe_name(alias: str) -> str:
@@ -46,11 +46,11 @@ class SnapshotManager:
                 for e in snap.entries
             ],
         }
-        path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+        write_private(path, json.dumps(data, indent=2, ensure_ascii=False))
         return path
 
     def load(self, path: Path) -> ScanSnapshot:
-        raw     = json.loads(path.read_text())
+        raw     = json.loads(path.read_text(encoding="utf-8"))
         entries = []
         for e in raw.get("entries", []):
             mtime = None
@@ -89,7 +89,7 @@ class SnapshotManager:
         result = []
         for f in sorted(self.dir.glob("*.json"), reverse=True):
             try:
-                raw = json.loads(f.read_text())
+                raw = json.loads(f.read_text(encoding="utf-8"))
                 result.append({
                     "file":         f.name,
                     "snapshot_id":  raw.get("snapshot_id", ""),

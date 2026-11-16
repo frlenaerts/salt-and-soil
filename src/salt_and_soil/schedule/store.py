@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 
 from .models import Schedule
-from ..shared.paths import ensure_dir
+from ..shared.paths import ensure_dir, write_private
 
 log = logging.getLogger("salt-and-soil.schedule")
 
@@ -21,7 +21,7 @@ class ScheduleStore:
         if not self.path.exists():
             return Schedule()
         try:
-            raw = json.loads(self.path.read_text())
+            raw = json.loads(self.path.read_text(encoding="utf-8"))
             return Schedule(
                 enabled = bool(raw.get("enabled", False)),
                 days    = sorted({int(d) for d in raw.get("days", []) if 0 <= int(d) <= 6}),
@@ -33,4 +33,4 @@ class ScheduleStore:
             return Schedule()
 
     def save(self, s: Schedule) -> None:
-        self.path.write_text(json.dumps(s.to_dict(), indent=2))
+        write_private(self.path, json.dumps(s.to_dict(), indent=2))

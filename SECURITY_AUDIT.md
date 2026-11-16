@@ -35,7 +35,7 @@
 | [SEC-09](#sec-09) | Low | Sessions cannot be revoked; valid 30 days regardless of "Remember me"; logout via GET | Enforce 24 h for non-remember tokens; rotate secret on logout; drop `GET /logout` | Open |
 | [SEC-10](#sec-10) | Low | CSRF defence is `SameSite=Lax` only; JSON endpoints accept any content type | `Origin` / `Sec-Fetch-Site` check in the auth middleware; `SameSite=Strict`; require JSON | Open |
 | [SEC-11](#sec-11) | Low | `/api/reset` unmounts during a running sync; check-then-act races; actions not validated server-side | Remove or guard `/api/reset`; lock state transitions; action whitelist per diff status | Open |
-| [SEC-12](#sec-12) | Low | `data/auth.toml` is world-readable (0644) and written non-atomically | Write 0600 + atomic replace; `data/` 0700; `UMask=0077` | Open |
+| [SEC-12](#sec-12) | Low | `data/auth.toml` is world-readable (0644) and written non-atomically | Write 0600 + atomic replace; `data/` 0700; `UMask=0077` | Fixed |
 | [SEC-13](#sec-13) | Low | No security headers (CSP, framing, nosniff), inline JS, third-party fonts, no Host validation | Header middleware; move JS to `/static`; self-host fonts; optional trusted-host list | Open |
 | [SEC-14](#sec-14) | Low | Orchestrator key is an unrestricted root shell on the agent; README leaves password SSH login on | Restrict the key (`rrsync`), move delete to an agent endpoint, tighten sshd docs | Open |
 | [SEC-15](#sec-15) | Low | rsync / NFS hardening: no `--protect-args`; mounts allow suid/dev/exec | Add `-s`; add `nosuid,nodev,noexec` to default `nfs_options` | Open |
@@ -181,10 +181,11 @@
 ### SEC-12 — Secrets on disk are world-readable · Low
 
 - **Where:** `auth/store.py:46-56`; also `state/json_store.py:109`, `schedule/store.py:36`, `config/config.toml` (created by `bootstrap.sh:60-62`)
-- **Status:** Open · **Verified:** PoC (`data/auth.toml` created with mode `0644`)
+- **Status:** Fixed · **Verified:** PoC (`data/auth.toml` created with mode `0644`)
 - **What:** `auth.toml` holds the argon2 hash *and* the session-signing secret and is written with `Path.write_text()`, i.e. default umask. `config.toml` holds the agent API key and is a plain `cp`. Writes are not atomic, so a crash mid-write can corrupt the file and lock the operator out.
 - **Impact:** Any local user on the host can read the signing secret and mint a valid admin cookie. Low on a single-purpose container, real on a shared host.
 - **Solution:** Write through a temp file opened with mode `0600` and `os.replace()` it; create `data/` with `0700`; `chmod 600 config/config.toml` in bootstrap; set `UMask=0077` in the systemd unit.
+- **Fix (2026-11-16):** New `write_private()` helper writes through a temp file and `os.replace()`, always mode `0600`, independent of umask. `auth.toml`, `state.json`, `schedule.json` and snapshots all use it. An `auth.toml` left at `0644` by an older version is tightened the first time it is read. A data dir the app creates itself gets `0700`; `bootstrap.sh` now runs `chmod 700 data` and `chmod 600 config/config.toml`. At startup the app logs a warning when the config file holds an API key and is readable by other users. Tests: `tests/test_private_files.py`. **Existing installs:** state files become private as they are rewritten; to close the gap at once run `chmod -R go-rwx data && chmod 600 config/config.toml` on both nodes. **Deviation:** an existing data dir is not re-moded automatically (it may be shared on purpose), and `UMask=0077` for the systemd unit is left to SEC-16.
 
 <a id="sec-13"></a>
 ### SEC-13 — No security headers, inline scripts, third-party fonts · Low

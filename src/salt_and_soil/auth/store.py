@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import secrets
+import stat
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -12,6 +13,7 @@ except ImportError:
 
 from .models import AuthUser
 from .password import hash_password
+from ..shared.paths import write_private
 
 
 class AuthStore:
@@ -26,6 +28,7 @@ class AuthStore:
 
     def load(self) -> AuthUser:
         if self._cache is None:
+            self._make_private()
             with open(self.path, "rb") as f:
                 raw = tomllib.load(f)
             self._cache = AuthUser(
@@ -35,6 +38,15 @@ class AuthStore:
                 created_at     = raw.get("created_at", ""),
             )
         return self._cache
+
+    def _make_private(self) -> None:
+        """Tighten a file written by an older version (default umask, 0644).
+        It holds the password hash and the session-signing secret."""
+        try:
+            if stat.S_IMODE(self.path.stat().st_mode) & 0o077:
+                self.path.chmod(0o600)
+        except OSError:
+            pass
 
     def reload(self) -> AuthUser:
         self._cache = None
@@ -52,7 +64,7 @@ class AuthStore:
             f"created_at = {json.dumps(user.created_at)}",
             "",
         ]
-        self.path.write_text("\n".join(lines), encoding="utf-8")
+        write_private(self.path, "\n".join(lines))
         self._cache = user
 
     def create(self, username: str, plain_password: str) -> AuthUser:

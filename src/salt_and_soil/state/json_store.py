@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .models import StateFile, SyncJob, FolderDiff, STATE_SCHEMA_VERSION
 from ..shared.enums import DiffStatus, SyncAction, JobStatus
-from ..shared.paths import ensure_dir
+from ..shared.paths import ensure_dir, write_private
 
 log = logging.getLogger("salt-and-soil.json_store")
 
@@ -24,7 +24,7 @@ class JSONStateStore:
         if not self.path.exists():
             return StateFile(node_name=node_name, role=role)
         try:
-            raw = json.loads(self.path.read_text())
+            raw = json.loads(self.path.read_text(encoding="utf-8"))
             ver = raw.get("schema_version", 1)
             if ver != STATE_SCHEMA_VERSION:
                 log.warning(
@@ -106,4 +106,4 @@ class JSONStateStore:
                 for d in state.diffs
             ],
         }
-        self.path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+        write_private(self.path, json.dumps(data, indent=2, ensure_ascii=False))
