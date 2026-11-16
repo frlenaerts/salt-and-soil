@@ -74,7 +74,7 @@ The two containers communicate over **Tailscale** (WireGuard-based VPN). No rout
 Salt & Soil is a **single-operator tool for a trusted network**, not a multi-tenant or hostile-network service. The design assumes:
 
 - **The agent API is unauthenticated.** Anyone on the Tailscale network can call `/mount`, `/unmount`, and `/list` on the agent. Trust lives at the VPN layer — if you expose the agent port on a public network, it is wide open.
-- **The orchestrator web UI has a single user account** (argon2-hashed password, signed session cookie, 5-strikes / 15-minute brute-force throttle). The throttle is in-memory and global — it resets on process restart and does not discriminate per IP.
+- **The orchestrator web UI has a single user account** (argon2-hashed password, signed session cookie, 5-strikes / 15-minute brute-force throttle per client address). The throttle is in-memory — it resets on process restart. Behind a reverse proxy on another host, all visitors share the proxy's address and therefore one counter.
 - **Session cookies are not marked `secure`.** You can access the UI over plain HTTP on a trusted LAN; put it behind TLS (reverse proxy, Cloudflare Tunnel, …) before exposing it publicly.
 - **Both containers run privileged with root SSH** between them. This is required for NFS mounts and rsync; it is not a hardened setup.
 - **No CSRF token, but an origin check.** State-changing requests are only accepted from the UI's own origin (`Origin` / `Sec-Fetch-Site` headers), on top of the SameSite=Lax cookie. If a reverse proxy rewrites the `Host` header and the UI answers *Cross-origin request rejected*, list the address you open in the browser under `[server] allowed_origins`.
@@ -373,7 +373,7 @@ journalctl -u salt-and-soil | grep token
 
 After that, access to the UI and `/api/*` requires a signed session cookie issued by `/login`. The "Remember me" checkbox extends the cookie lifetime to 30 days.
 
-Passwords are hashed with **argon2** and the session-signing secret is rotated on every password change. Repeated failed logins are throttled: **5 failures** lock new attempts for **15 minutes**.
+Passwords are hashed with **argon2** and the session-signing secret is rotated on every password change. Repeated failed logins are throttled per client address: **5 failures** lock that address out for **15 minutes**. As a ceiling against guessing from many addresses, 20 failures in total within 15 minutes lock everyone out for 15 minutes.
 
 Auth state lives in `./data/auth.toml` — delete that file to start over (a new setup token is then written to the log).
 

@@ -8,6 +8,7 @@ Single FastAPI application — role determines which routes are active:
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import logging
 import signal
@@ -32,7 +33,10 @@ from ..auth import (
     AuthStore, LoginThrottle, SetupToken, hash_password, verify_password,
     make_session_token, verify_session_token,
 )
-from ..auth.password import MIN_PASSWORD_LENGTH
+from ..auth.password import (
+    MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH, dummy_verify, prepare_dummy_hash,
+)
+from ..auth.throttle import client_key
 from ..auth.session import SESSION_COOKIE, REMEMBER_SECONDS, SESSION_SECONDS
 from ..config.models import Config
 from ..schedule.models import Schedule
@@ -174,6 +178,7 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
     auth_store    = AuthStore(auth_path)
     login_throttle = LoginThrottle()
     allowed_origins = frozenset(cfg.server.allowed_origins)
+    prepare_dummy_hash()            # so the first failed login is not slower
 
     # While there is no account, creating one requires a token from the log.
     setup_token = SetupToken()
@@ -293,6 +298,8 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
             err = "Username is required."
         elif len(password) < MIN_PASSWORD_LENGTH:
             err = f"Password must be at least {MIN_PASSWORD_LENGTH} characters."
+        elif len(password) > MAX_PASSWORD_LENGTH:
+            err = f"Password must be at most {MAX_PASSWORD_LENGTH} characters."
         elif password != password2:
             err = "Passwords do not match."
 
@@ -333,9 +340,10 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
         if not auth_store.exists():
             return RedirectResponse("/setup", status_code=303)
 
-        uname = username.strip()
+        uname  = username.strip()
+        client = client_key(request.client.host if request.client else None)
 
-        remaining = login_throttle.seconds_remaining()
+        remaining = login_throttle.seconds_remaining(client)
         if remaining > 0:
             return templates.TemplateResponse(request, "login.html", {
                 "title": "Sign in",
@@ -348,9 +356,16 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
         except Exception:
             user = None
 
-        ok = bool(user and uname == user.username and verify_password(password, user.password_hash))
+        # Exactly one hash verification on every path, so the response time
+        # does not reveal whether the user name exists.
+        ok = False
+        if len(password) <= MAX_PASSWORD_LENGTH:
+            if user is not None and hmac.compare_digest(uname.encode(), user.username.encode()):
+                ok = verify_password(password, user.password_hash)
+            else:
+                dummy_verify(password)
         if not ok:
-            lockout = login_throttle.record_failure()
+            lockout = login_throttle.record_failure(client)
             error   = _lockout_error(lockout) if lockout > 0 else "Invalid username or password."
             return templates.TemplateResponse(request, "login.html", {
                 "title": "Sign in",
@@ -358,7 +373,7 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
                 "username": uname,
             }, status_code=429 if lockout > 0 else 401)
 
-        login_throttle.record_success()
+        login_throttle.record_success(client)
         resp = RedirectResponse("/", status_code=303)
         _issue_session_cookie(resp, uname, remember=bool(remember))
         return resp
@@ -389,10 +404,12 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
         confirm  = str(body.get("confirm_password", ""))
 
         user = auth_store.load()
-        if not verify_password(current, user.password_hash):
+        if len(current) > MAX_PASSWORD_LENGTH or not verify_password(current, user.password_hash):
             raise HTTPException(400, "Current password is incorrect.")
         if len(new_pw) < MIN_PASSWORD_LENGTH:
             raise HTTPException(400, f"New password must be at least {MIN_PASSWORD_LENGTH} characters.")
+        if len(new_pw) > MAX_PASSWORD_LENGTH:
+            raise HTTPException(400, f"New password must be at most {MAX_PASSWORD_LENGTH} characters.")
         if new_pw != confirm:
             raise HTTPException(400, "New passwords do not match.")
 

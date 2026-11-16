@@ -31,7 +31,7 @@
 | [SEC-05](#sec-05) | Medium | No transport security: UI and agent API over plain HTTP, cookie not `Secure` | TLS option / reverse proxy, `cookie_secure` setting, `https://` agents | Open |
 | [SEC-06](#sec-06) | Medium | First-run `/setup` is open to whoever reaches it first (and reopens if `auth.toml` is missing) | One-time setup token from the journal, or a CLI `create-user` | Fixed |
 | [SEC-07](#sec-07) | Medium | Pinned dependencies with known CVEs (pre-auth DoS in form parsing) | Bump `fastapi`/`starlette`, `python-multipart`, `jinja2`, `pytest`; add `pip-audit` | Fixed |
-| [SEC-08](#sec-08) | Low | Login throttle is global (anyone can lock the operator out) + username timing oracle | Per-IP throttle with backoff; dummy hash verify for unknown users | Open |
+| [SEC-08](#sec-08) | Low | Login throttle is global (anyone can lock the operator out) + username timing oracle | Per-IP throttle with backoff; dummy hash verify for unknown users | Fixed |
 | [SEC-09](#sec-09) | Low | Sessions cannot be revoked; valid 30 days regardless of "Remember me"; logout via GET | Enforce 24 h for non-remember tokens; rotate secret on logout; drop `GET /logout` | Open |
 | [SEC-10](#sec-10) | Low | CSRF defence is `SameSite=Lax` only; JSON endpoints accept any content type | `Origin` / `Sec-Fetch-Site` check in the auth middleware; `SameSite=Strict`; require JSON | Fixed |
 | [SEC-11](#sec-11) | Low | `/api/reset` unmounts during a running sync; check-then-act races; actions not validated server-side | Remove or guard `/api/reset`; lock state transitions; action whitelist per diff status | Fixed |
@@ -143,10 +143,11 @@
 ### SEC-08 — Global login throttle and username timing oracle · Low
 
 - **Where:** `auth/throttle.py`, `transport/api_server.py:253-291`
-- **Status:** Open · **Known** (README, the global part) · **Verified:** PoC
+- **Status:** Fixed · **Known** (README, the global part) · **Verified:** PoC
 - **What:** The throttle is one global counter: five wrong attempts from *anyone* lock *everyone* out for 15 minutes; repeating that every 15 minutes keeps the operator out permanently. Separately, the username is compared before the password hash is verified, so an unknown username answers in ~7 ms and the valid one in ~59 ms (measured).
 - **Impact:** Cheap denial of service against the UI; username disclosure. Password brute force itself is well contained (≤ 480 guesses per day against argon2).
 - **Solution:** Throttle per client IP with exponential backoff and keep only a generous global ceiling; always run a hash verification (against a dummy hash for unknown users); cap the accepted password length (e.g. 1024).
+- **Fix (2026-11-16):** The throttle now counts per client address (IPv4 address, or the /64 for IPv6): five failures lock out that client only, so another device can no longer lock the operator out. A global ceiling (20 failures within 15 minutes, all clients together) still bounds guessing from many addresses; the client table is capped at 1024 entries. Every login attempt performs exactly one hash verification — against a dummy hash when the user name is unknown — and the user name is compared in constant time; measured response times are now 73 ms (unknown) vs 65 ms (valid), previously 7 vs 59. Passwords longer than 1024 characters are rejected without hashing on login, setup and password change. Tests: `tests/test_login_throttle.py`. **Deviation:** fixed 15-minute lockout as before, no exponential backoff. **Residual:** an attacker with four or more addresses can still trigger the global lockout, and behind a reverse proxy on another host all visitors share one counter.
 
 <a id="sec-09"></a>
 ### SEC-09 — Sessions cannot be revoked and live 30 days · Low

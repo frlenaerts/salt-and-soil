@@ -60,7 +60,8 @@ def make_orchestrator(tmp_path: Path, extra_config: str = "") -> SimpleNamespace
     return SimpleNamespace(
         app=app, rt=rt, cfg=cfg,
         auth_file=Path(cfg.app.data_dir) / "auth.toml",
-        client=lambda: TestClient(app, follow_redirects=False),
+        # `ip` is the address the app sees as the client's.
+        client=lambda ip="testclient": TestClient(app, follow_redirects=False, client=(ip, 50000)),
     )
 
 
@@ -78,8 +79,8 @@ def orch_user(tmp_path):
     AuthStore(tmp_path / "data" / "auth.toml").create(TEST_USER, TEST_PASSWORD)
     o = make_orchestrator(tmp_path)
 
-    def login(remember: bool = False) -> TestClient:
-        c = o.client()
+    def login(remember: bool = False, ip: str = "testclient") -> TestClient:
+        c = o.client(ip)
         data = {"username": TEST_USER, "password": TEST_PASSWORD}
         if remember:
             data["remember"] = "1"
