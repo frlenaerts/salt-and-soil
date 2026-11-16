@@ -34,7 +34,7 @@
 | [SEC-08](#sec-08) | Low | Login throttle is global (anyone can lock the operator out) + username timing oracle | Per-IP throttle with backoff; dummy hash verify for unknown users | Open |
 | [SEC-09](#sec-09) | Low | Sessions cannot be revoked; valid 30 days regardless of "Remember me"; logout via GET | Enforce 24 h for non-remember tokens; rotate secret on logout; drop `GET /logout` | Open |
 | [SEC-10](#sec-10) | Low | CSRF defence is `SameSite=Lax` only; JSON endpoints accept any content type | `Origin` / `Sec-Fetch-Site` check in the auth middleware; `SameSite=Strict`; require JSON | Fixed |
-| [SEC-11](#sec-11) | Low | `/api/reset` unmounts during a running sync; check-then-act races; actions not validated server-side | Remove or guard `/api/reset`; lock state transitions; action whitelist per diff status | Open |
+| [SEC-11](#sec-11) | Low | `/api/reset` unmounts during a running sync; check-then-act races; actions not validated server-side | Remove or guard `/api/reset`; lock state transitions; action whitelist per diff status | Fixed |
 | [SEC-12](#sec-12) | Low | `data/auth.toml` is world-readable (0644) and written non-atomically | Write 0600 + atomic replace; `data/` 0700; `UMask=0077` | Fixed |
 | [SEC-13](#sec-13) | Low | No security headers (CSP, framing, nosniff), inline JS, third-party fonts, no Host validation | Header middleware; move JS to `/static`; self-host fonts; optional trusted-host list | Open |
 | [SEC-14](#sec-14) | Low | Orchestrator key is an unrestricted root shell on the agent; README leaves password SSH login on | Restrict the key (`rrsync`), move delete to an agent endpoint, tighten sshd docs | Open |
@@ -170,13 +170,14 @@
 ### SEC-11 — State-machine gaps: `/api/reset`, races, unvalidated actions · Low
 
 - **Where:** `transport/api_server.py:357-363,414-428`, `roles/orchestrator.py:399-412,492-502`
-- **Status:** Open · **Verified:** Code
+- **Status:** Fixed · **Verified:** Code
 - **What:**
   - `/api/reset` has no status check and is not used by the UI. Called during a sync it lazily unmounts both sides under the running rsync and sets the status to `idle` while the job continues.
   - `/api/execute` awaits the request body between checking `READY` and setting `SYNCING`; `/api/start` only changes status once the background task runs. Two quick requests can start two concurrent runs.
   - The allowed-action matrix (`ACTION_OPTS`) exists only in the browser. The server accepts any action for any row, e.g. `pull` on a `local_only` folder.
 - **Impact:** Transfers can fail midway or land in the bare mount-point directory instead of on the NAS, runs can interleave, and the server relies on the UI for sanity. Authenticated only, or via SEC-10.
 - **Solution:** Remove `/api/reset` or allow it only in `idle/ready/done/error`; set the status before the first `await` or guard transitions with an `asyncio.Lock`; validate each action against the row's `diff_status` on the server.
+- **Fix (2026-11-16):** `/api/reset` is refused while a run is in flight and holds the runtime while it unmounts. `/api/start` and `/api/execute` now check the status and claim the runtime with no `await` in between, so two requests can no longer both start a run (`/api/execute` reads its body first). The allowed-action table lives in `sync/planner.py` (`ALLOWED_ACTIONS`) and is enforced twice: `/api/execute` rejects the whole request with a clear message if any action does not fit its row, and `run_sync` skips such an action as a backstop for callers that bypass the API. A test keeps the server table and the UI's `ACTION_OPTS` from drifting apart. Malformed action payloads now return 400 instead of 500. Tests: `tests/test_state_machine.py`. **Deviation:** `/api/reset` was kept (guarded) rather than removed, in case anything outside the UI relies on it.
 
 <a id="sec-12"></a>
 ### SEC-12 — Secrets on disk are world-readable · Low

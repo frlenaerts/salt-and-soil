@@ -20,7 +20,7 @@ from ..schedule.loop import ScheduleLoop
 from ..state.repository import StateRepository
 from ..state.models import FolderDiff
 from ..sync.comparer import compare
-from ..sync.planner import build_jobs
+from ..sync.planner import build_jobs, is_action_allowed
 from ..sync.executor import SyncExecutor, ResolvedSource
 from ..transport.api_client import AgentAPIClient, AgentUnreachableError
 from ..transport.dtos import ActionItem
@@ -210,6 +210,22 @@ class OrchestratorRuntime:
             return
         self._info(f"[{self._node}] ⏰ Scheduled run — {to_sync} folder(s) to sync")
         await self.run_sync(actions)
+
+    # ── Action validation ─────────────────────────────────────────────────────
+
+    def check_actions(self, actions: list[ActionItem]) -> str | None:
+        """Why `actions` cannot be applied to the current diffs, or None if
+        they can. Rows that no longer exist are not an error — run_sync
+        ignores them."""
+        by_key = {(d.source_alias, d.name): d for d in self._diffs}
+        for a in actions:
+            diff = by_key.get((a.source_alias, a.folder))
+            if diff is not None and not is_action_allowed(diff.diff_status, a.action):
+                return (
+                    f"Action '{a.action.value}' is not allowed for "
+                    f"{a.source_alias}/{a.folder} (status: {diff.diff_status.value})"
+                )
+        return None
 
     # ── Main flow ─────────────────────────────────────────────────────────────
 
@@ -430,8 +446,18 @@ class OrchestratorRuntime:
             action_map = {(a.source_alias, a.folder): a.action for a in actions}
             for diff in self._diffs:
                 k = (diff.source_alias, diff.name)
-                if k in action_map:
+                if k not in action_map:
+                    continue
+                if is_action_allowed(diff.diff_status, action_map[k]):
                     diff.planned_action = action_map[k]
+                else:
+                    # The API rejects these up front; this is the backstop.
+                    diff.planned_action = SyncAction.SKIP
+                    self._err(
+                        f"Skipping {diff.source_alias}/{diff.name}: action "
+                        f"'{action_map[k].value}' is not allowed for a "
+                        f"{diff.diff_status.value} folder"
+                    )
 
             jobs  = build_jobs(self._diffs)
             to_do = [j for j in jobs if j.action != SyncAction.SKIP]

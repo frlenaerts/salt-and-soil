@@ -414,11 +414,18 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
             "username":  user.username,
         })
 
+    # A run is in flight in these states. Every handler below that starts or
+    # disturbs a run checks the status and claims the runtime (by setting a
+    # busy status) without an `await` in between — on a single event loop that
+    # makes check-and-claim atomic, so two requests cannot both get through.
+    BUSY = (AppStatus.MOUNTING, AppStatus.SCANNING, AppStatus.SYNCING)
+
     @app.post("/api/start")
     async def start(background_tasks: BackgroundTasks):
-        if rt.status not in (AppStatus.IDLE, AppStatus.READY, AppStatus.DONE, AppStatus.ERROR):
+        if rt.status in BUSY:
             raise HTTPException(400, "Busy")
         rt.reset()
+        rt.status = AppStatus.MOUNTING      # claimed; run_scan takes it from here
         background_tasks.add_task(rt.run_scan)
         return {"ok": True}
 
@@ -473,18 +480,32 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
 
     @app.post("/api/execute")
     async def execute(request: Request, background_tasks: BackgroundTasks):
+        body = await _json_object(request)      # the only await — before the check
+        try:
+            req = ExecuteRequest.from_dict(body)
+        except (KeyError, TypeError, ValueError, AttributeError):
+            raise HTTPException(400, "Invalid actions payload")
         if rt.status != AppStatus.READY:
             raise HTTPException(400, "Scan first")
-        body = await _json_object(request)
-        req  = ExecuteRequest.from_dict(body)
+        problem = rt.check_actions(req.actions)
+        if problem:
+            raise HTTPException(400, problem)
         rt.status = AppStatus.SYNCING
         background_tasks.add_task(rt.run_sync, req.actions)
         return {"ok": True}
 
     @app.post("/api/reset")
     async def reset():
-        await rt.do_unmount()
+        """Release all mounts and forget the last scan. Refused while a run is
+        in flight: unmounting underneath a running rsync makes it miss the NAS."""
+        if rt.status in BUSY:
+            raise HTTPException(400, "Busy")
         rt.reset()
+        rt.status = AppStatus.MOUNTING      # hold the runtime while shares are released
+        try:
+            await rt.do_unmount()
+        finally:
+            rt.status = AppStatus.IDLE
         return {"ok": True}
 
     @app.post("/api/cancel")

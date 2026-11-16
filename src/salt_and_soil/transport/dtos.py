@@ -21,11 +21,11 @@ class ActionItem:
 
     @classmethod
     def from_dict(cls, d: dict) -> "ActionItem":
-        return cls(
-            source_alias = d["source_alias"],
-            folder       = d["folder"],
-            action       = SyncAction(d["action"]),
-        )
+        """Raises KeyError / TypeError / ValueError on anything malformed."""
+        alias, folder = d["source_alias"], d["folder"]
+        if not isinstance(alias, str) or not isinstance(folder, str):
+            raise ValueError("source_alias and folder must be strings")
+        return cls(source_alias=alias, folder=folder, action=SyncAction(d["action"]))
 
 
 @dataclass
