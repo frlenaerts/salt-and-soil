@@ -30,7 +30,7 @@
 | [SEC-04](#sec-04) | Medium | SSH host-key verification disabled (`StrictHostKeyChecking=no`) | `accept-new` + dedicated `known_hosts`; `BatchMode`, `IdentitiesOnly` | Open |
 | [SEC-05](#sec-05) | Medium | No transport security: UI and agent API over plain HTTP, cookie not `Secure` | TLS option / reverse proxy, `cookie_secure` setting, `https://` agents | Open |
 | [SEC-06](#sec-06) | Medium | First-run `/setup` is open to whoever reaches it first (and reopens if `auth.toml` is missing) | One-time setup token from the journal, or a CLI `create-user` | Open |
-| [SEC-07](#sec-07) | Medium | Pinned dependencies with known CVEs (pre-auth DoS in form parsing) | Bump `fastapi`/`starlette`, `python-multipart`, `jinja2`, `pytest`; add `pip-audit` | Open |
+| [SEC-07](#sec-07) | Medium | Pinned dependencies with known CVEs (pre-auth DoS in form parsing) | Bump `fastapi`/`starlette`, `python-multipart`, `jinja2`, `pytest`; add `pip-audit` | Fixed |
 | [SEC-08](#sec-08) | Low | Login throttle is global (anyone can lock the operator out) + username timing oracle | Per-IP throttle with backoff; dummy hash verify for unknown users | Open |
 | [SEC-09](#sec-09) | Low | Sessions cannot be revoked; valid 30 days regardless of "Remember me"; logout via GET | Enforce 24 h for non-remember tokens; rotate secret on logout; drop `GET /logout` | Open |
 | [SEC-10](#sec-10) | Low | CSRF defence is `SameSite=Lax` only; JSON endpoints accept any content type | `Origin` / `Sec-Fetch-Site` check in the auth middleware; `SameSite=Strict`; require JSON | Open |
@@ -121,7 +121,7 @@
 ### SEC-07 — Pinned dependencies with known CVEs · Medium
 
 - **Where:** `requirements.txt`
-- **Status:** Open · **Verified:** Scan (`pip-audit`, 2026-11-16)
+- **Status:** Fixed · **Verified:** Scan (`pip-audit`, 2026-11-16)
 
 | Package (pinned) | Advisories | Relevant here? | Fixed in |
 |---|---|---|---|
@@ -134,6 +134,7 @@
   1. Bump `fastapi` to a release that allows Starlette ≥ 1.3.1, `python-multipart` ≥ 0.0.31, `jinja2` ≥ 3.1.6. The templates are called as `TemplateResponse(name, {"request": …})` (`api_server.py:204,228,244,267,282,338`); newer Starlette expects `TemplateResponse(request, name, context)`, so adjust those calls in the same change.
   2. Move `pytest` / `pytest-asyncio` to a `requirements-dev.txt`.
   3. Run `pip-audit` in CI (or enable Dependabot) so this item does not silently reopen.
+- **Fix (2026-11-16):** Pinned `fastapi` 0.162.5, `starlette` 1.7.0 (now pinned explicitly), `python-multipart` 0.0.32 and `jinja2` 3.1.6 — the newest releases that still support Python 3.10. `pip-audit` reports no known vulnerabilities for the fully resolved set (38 packages). Template calls use the request-first signature (the old form raises on Starlette 1.x) and are covered by page smoke tests in `tests/test_web_pages.py`. `pytest` 9.2.0 / `pytest-asyncio` 1.5.0 moved to `requirements-dev.txt`. Tested on Python 3.11 and 3.13. **Not done:** automated `pip-audit` — the repo has no CI yet. **Heads-up:** later FastAPI / Starlette / python-multipart releases require Python 3.11+, so the next security bump will raise the minimum Python version.
 
 <a id="sec-08"></a>
 ### SEC-08 — Global login throttle and username timing oracle · Low

@@ -31,7 +31,8 @@ python -m salt_and_soil scan --alias Movies
 # Mount + scan + UI test mode (unmounts on stop)
 python -m salt_and_soil test-mount
 
-# Tests
+# Tests (test dependencies live in requirements-dev.txt)
+pip install -r requirements-dev.txt
 pytest
 pytest -v
 pytest tests/test_comparer.py

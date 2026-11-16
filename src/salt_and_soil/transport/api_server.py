@@ -201,8 +201,8 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
     async def setup_get(request: Request):
         if auth_store.exists():
             return RedirectResponse("/login", status_code=303)
-        return templates.TemplateResponse("setup.html", {
-            "request": request, "title": "Setup", "error": None, "username": "",
+        return templates.TemplateResponse(request, "setup.html", {
+            "title": "Setup", "error": None, "username": "",
         })
 
     @app.post("/setup", response_class=HTMLResponse)
@@ -225,8 +225,8 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
             err = "Passwords do not match."
 
         if err:
-            return templates.TemplateResponse("setup.html", {
-                "request": request, "title": "Setup", "error": err, "username": uname,
+            return templates.TemplateResponse(request, "setup.html", {
+                "title": "Setup", "error": err, "username": uname,
             }, status_code=400)
 
         auth_store.create(uname, password)
@@ -241,8 +241,8 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
             return RedirectResponse("/setup", status_code=303)
         if _authenticated_user(request):
             return RedirectResponse("/", status_code=303)
-        return templates.TemplateResponse("login.html", {
-            "request": request, "title": "Sign in", "error": None, "username": "",
+        return templates.TemplateResponse(request, "login.html", {
+            "title": "Sign in", "error": None, "username": "",
         })
 
     def _lockout_error(seconds: float) -> str:
@@ -264,8 +264,8 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
 
         remaining = login_throttle.seconds_remaining()
         if remaining > 0:
-            return templates.TemplateResponse("login.html", {
-                "request":  request, "title": "Sign in",
+            return templates.TemplateResponse(request, "login.html", {
+                "title": "Sign in",
                 "error":    _lockout_error(remaining),
                 "username": uname,
             }, status_code=429)
@@ -279,8 +279,8 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
         if not ok:
             lockout = login_throttle.record_failure()
             error   = _lockout_error(lockout) if lockout > 0 else "Invalid username or password."
-            return templates.TemplateResponse("login.html", {
-                "request":  request, "title": "Sign in",
+            return templates.TemplateResponse(request, "login.html", {
+                "title": "Sign in",
                 "error":    error,
                 "username": uname,
             }, status_code=429 if lockout > 0 else 401)
@@ -335,8 +335,7 @@ def _register_orchestrator_routes(app: FastAPI, cfg: Config, rt):
     async def index(request: Request):
         user      = auth_store.load()
         agent_str = ", ".join(a.name for a in cfg.agents)
-        return templates.TemplateResponse("index.html", {
-            "request":   request,
+        return templates.TemplateResponse(request, "index.html", {
             "version":   __version__,
             "node_name": cfg.app.node_name,
             "aliases":   [s.alias for s in cfg.sources],
