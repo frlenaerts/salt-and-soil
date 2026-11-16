@@ -119,7 +119,7 @@ remote_share = "/volume1"
 remote_path  = "videos"
 ```
 
-Sources are first-class. Each `[[sources]]` entry yields one alias in the UI; the loader sorts them by `(sort, alias)` and validates uniqueness, `local_path` traversal, and (on orchestrator) that every `agent` reference matches an `[[agents]].name`. The `MountRegistry` then deduplicates by `(host, share)` so two sources on the same share reuse one mount.
+Sources are first-class. Each `[[sources]]` entry yields one alias in the UI; the loader sorts them by `(sort, alias)` and validates uniqueness, that `local_path` / `remote_path` stay inside the share (relative, no `..`), host and port values, and (on orchestrator) that every `agent` reference matches an `[[agents]].name`. The `MountRegistry` then deduplicates by `(host, share)` so two sources on the same share reuse one mount.
 
 The excludes file is plain text, one pattern per line (`#` comments, `*`/`?`/`[..]` globs). It's passed to `rsync --exclude-from` and to `du --exclude=` during scan, and also filters top-level folders. Deploy the same file on both nodes so their scans compute identical sizes.
 

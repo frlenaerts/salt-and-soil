@@ -41,7 +41,7 @@
 | [SEC-15](#sec-15) | Low | rsync / NFS hardening: no `--protect-args`; mounts allow suid/dev/exec | Add `-s`; add `nosuid,nodev,noexec` to default `nfs_options` | Open |
 | [SEC-16](#sec-16) | Low | Runs as root with no service sandboxing; binds `0.0.0.0`; `test-mount` serves an unauthenticated UI on all interfaces | Bind narrowly; harden the systemd unit; `test-mount` → `127.0.0.1` | Open |
 | [SEC-17](#sec-17) | Low | Scheduled runs push changes unattended, while the README says sync is never automatic | Add a `schedule.auto_sync` switch (default off) or correct the docs | Open |
-| [SEC-18](#sec-18) | Info | Config validation gaps: absolute `local_path` / `remote_path` bypass the `..` check | Reject absolute paths; restrict alias charset | Open |
+| [SEC-18](#sec-18) | Info | Config validation gaps: absolute `local_path` / `remote_path` bypass the `..` check | Reject absolute paths; restrict alias charset | Fixed |
 | [SEC-19](#sec-19) | Info | Supply chain: `curl \| tar`, `curl \| sh`, no hashes, unpinned transitive deps | Publish checksums; hash-pinned lock file | Open |
 
 ---
@@ -244,9 +244,10 @@
 ### SEC-18 — Config validation gaps · Info
 
 - **Where:** `config/loader.py:165-177`
-- **Status:** Open · **Verified:** PoC (`local_path = "/etc"` resolves to `/etc`)
+- **Status:** Fixed · **Verified:** PoC (`local_path = "/etc"` resolves to `/etc`)
 - **What:** The loader rejects `..` in `local_path` / `remote_path`, but an absolute path passes and replaces the mount point entirely in `posixpath.join()`. Aliases accept any characters. The config file is root-owned, so this is a guard-rail issue rather than an attack path.
 - **Solution:** Reject absolute paths and normalise; restrict aliases to a conservative character set; validate `host` / `port` values.
+- **Fix (2026-11-16):** The loader now rejects absolute `local_path` / `remote_path` (in addition to `..`) and normalises both (`videos/` → `videos`, `.` → share root). Host-like values (`server.host`, agent `host` / `ssh_host` / `ssh_user`, source `local_host`) may not start with `-` or contain spaces, `/` or control characters, since they become arguments of ssh, ping and mount. Ports must be 1–65535. Share paths may not contain control characters. Tests added to `tests/test_config.py`. **Deviation:** aliases are only limited to 64 characters without control characters — a stricter character set would reject legitimate aliases such as `TV Series` or `Foto's & Films`, and aliases are escaped everywhere they are used.
 
 <a id="sec-19"></a>
 ### SEC-19 — Supply chain of the install path · Info
